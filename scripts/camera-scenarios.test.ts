@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { tuningFor } from '../src/camera/CameraConfig';
 import { FightingCamera, HYBRID_TUNING } from '../src/camera/FightingCamera';
+import { lag } from './camera-lag';
 
 let fails = 0;
 const ok = (c: boolean, m: string) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fails++; };
@@ -257,6 +258,13 @@ const dist = (c: FightingCamera) => c.debugInfo().distance;
   ok(def.d > 13.5 && def.d < 15, `the default rest view is ${def.d.toFixed(1)} m (was 11.8 m before this change)`);
   ok(inSafe(far.c, [far.a, far.b], 0) && inSafe(near.c, [near.a, near.b], 0), 'fighters stay fully framed at the nearest and farthest settings');
   ok(restDist(100).d <= restDist(1.8).d + 0.01 && restDist(-3).d >= restDist(0.8).d - 0.01, 'out-of-range distance settings are clamped (0.8x - 1.8x)');
+}
+// ------------------------------------------------------------------------------------------------ follow lag
+{
+  const walk = lag(3.5), run = lag(5);
+  ok(walk.steady < 0.045, `fighters walking (3.5 m/s) stay within ${(walk.steady * 100).toFixed(1)}% of screen centre (no trailing)`);
+  ok(run.steady < 0.06, `fighters running (5 m/s) stay within ${(run.steady * 100).toFixed(1)}% of screen centre`);
+  ok(walk.stop < 0.09 && run.stop < 0.13, `no big overshoot after stopping (${(walk.stop * 100).toFixed(1)}% / ${(run.stop * 100).toFixed(1)}%)`);
 }
 // ------------------------------------------------------------------------------------------------ zoom pulses
 {

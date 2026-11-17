@@ -51,7 +51,7 @@ export class FightingCamera {
   private dist = new Spring(11.8); private yaw = new Spring(11 * D2R);
   private lookX = new Spring(); private lookY = new Spring(1.1); private lookZ = new Spring();
   private fov = new Spring(34);
-  private lead = new Spring();
+  private lead = new Spring(); private vxLP = 0;
   private time = 0;
 
   private shake = 0;
@@ -259,8 +259,11 @@ export class FightingCamera {
     // dead zone: the anchor only moves once the midpoint leaves a small window around it (also drives the velocity lead)
     const prevAnchor = this.anchorX;
     if (Math.abs(mxRaw - this.anchorX) > T.deadZone) this.anchorX = mxRaw - Math.sign(mxRaw - this.anchorX) * T.deadZone;
-    const vx = (this.anchorX - prevAnchor) / Math.max(dt, 0.001);
-    const lead = this.lead.step(clamp(vx * 0.25, -0.7, 0.7), 0.35, dt);
+    const vxRaw = (this.anchorX - prevAnchor) / Math.max(dt, 0.001);
+    this.vxLP = snap ? 0 : this.vxLP + (vxRaw - this.vxLP) * (1 - Math.exp(-dt / 0.12)); // low-pass: stop/start jitter must not shake the camera
+    const vx = this.vxLP;
+    // velocity feed-forward: a critically damped follower trails a moving target by speed * smoothTime, so lead by that much
+    const lead = this.lead.step(clamp(vx * (T.followX * T.follow + 0.12 * T.lookLag) * T.leadGain, -2.2, 2.2), 0.1, dt);
 
     const bx = this.bounds.x, bz = this.bounds.z;
     const mx = clamp(this.anchorX + lead, -bx, bx);

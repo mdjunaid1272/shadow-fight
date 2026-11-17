@@ -27,6 +27,8 @@ export interface CameraTuning {
   follow: number;
   /** multiplier on the look-at lag */
   lookLag: number;
+  /** feed-forward on the midpoint's velocity (1 = cancels the follow lag completely, 0 = off) */
+  leadGain: number;
   /** 1 = solve distance from the real screen fit + frame guarantee; 0 = old analytic estimate (tests only) */
   frameGuard: number;
 
@@ -81,7 +83,7 @@ export interface CameraTuning {
 
 /** The busy camera of the earliest version. Kept for comparison/tests and as the "Dynamic" style. */
 export const FULL_TUNING: CameraTuning = {
-  actionLead: 1, depthYaw: 1, kick: 1, shake: 1, sway: 1, speedFov: 1, follow: 1, lookLag: 1, frameGuard: 1,
+  actionLead: 1, depthYaw: 1, kick: 1, shake: 1, sway: 1, speedFov: 1, follow: 1, lookLag: 1, leadGain: 0, frameGuard: 1,
   baseDistance: 10.3, distScale: 1.15, closeFactor: 1, minDistance: 7.6, maxDistance: 32, zoomHyst: 0.35, baseFov: 34, pitch: 5.5, yaw: 9.2, lookHeight: 1.1,
   followX: 0.24, followY: 0.3, followZ: 0.28, rotSmooth: 0.55, zoomIn: 0.45, zoomOut: 0.18,
   deadZone: 0.22, maxDepthYaw: 18.3, yawHysteresis: 0, maxYawRate: 0, yawFilter: 0,
@@ -100,10 +102,10 @@ export const CALM_TUNING: CameraTuning = {
  * movement, slightly closer framing in close combat, faster zoom-out than zoom-in, subtle directional hit response.
  */
 export const HYBRID_TUNING: CameraTuning = {
-  actionLead: 0, depthYaw: 1, kick: 0.4, shake: 0.35, sway: 0, speedFov: 0, follow: 1, lookLag: 1, frameGuard: 1,
+  actionLead: 0, depthYaw: 1, kick: 0.4, shake: 0.35, sway: 0, speedFov: 0, follow: 1, lookLag: 1, leadGain: 0.9, frameGuard: 1,
   baseDistance: 12.4, distScale: 1.15, closeFactor: 0.92, minDistance: 11.4, maxDistance: 32, zoomHyst: 0.4, baseFov: 34, pitch: 11, yaw: 11, lookHeight: 1.12,
   followX: 0.26, followY: 0.36, followZ: 0.34, rotSmooth: 0.85, zoomIn: 0.85, zoomOut: 0.36,
-  deadZone: 0.2, maxDepthYaw: 12, yawHysteresis: 5, maxYawRate: 16, yawFilter: 0.42,
+  deadZone: 0.12, maxDepthYaw: 12, yawHysteresis: 5, maxYawRate: 16, yawFilter: 0.42,
   impact: 1, cinematic: 1,
 };
 

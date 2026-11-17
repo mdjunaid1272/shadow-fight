@@ -1,0 +1,30 @@
+﻿{
+    "name":  "shadow-clash",
+    "private":  true,
+    "version":  "0.1.0",
+    "type":  "module",
+    "scripts":  {
+                    "dev":  "vite",
+                    "build":  "tsc --noEmit \u0026\u0026 vite build",
+                    "preview":  "vite preview",
+                    "prepare:libs":  "node scripts/copy-decoders.mjs",
+                    "android:sync":  "npm run build \u0026\u0026 cap sync android",
+                    "android:open":  "cap open android",
+                    "android:apk":  "npm run android:sync \u0026\u0026 cd android \u0026\u0026 gradlew.bat assembleDebug",
+                    "test":  "tsx scripts/sim.test.ts \u0026\u0026 tsx scripts/camera.test.ts \u0026\u0026 tsx scripts/camera-scenarios.test.ts \u0026\u0026 tsx scripts/anim.test.ts"
+                },
+    "dependencies":  {
+                         "@capacitor/core":  "^8.6.2",
+                         "howler":  "^2.2.4",
+                         "three":  "^0.187.0"
+                     },
+    "devDependencies":  {
+                            "@capacitor/android":  "^8.6.2",
+                            "@capacitor/cli":  "^8.6.2",
+                            "@types/howler":  "^2.2.13",
+                            "@types/three":  "^0.187.0",
+                            "tsx":  "^4.23.15",
+                            "typescript":  "^7.0.2",
+                            "vite":  "^8.3.8"
+                        }
+}

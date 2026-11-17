@@ -64,9 +64,9 @@ export const BASE_ATTACKS: Record<string, AttackData> = {
     chain: {}, knockdown: true, hitstop: 6, clip: 'SWEEP',
   }),
   launcher: a({ // rising strike: throws the victim up so a juggle can follow
-    id: 'launcher', button: 'light', startup: 15, active: 4, recovery: 28,
+    id: 'launcher', button: 'light', startup: 15, active: 2, recovery: 30,
     damage: 60, hitstun: 40, blockstun: 18, knockback: 0.05, energyGain: 6, lunge: 0.3,
-    reach: 1.1, radius: 0.55, height: 1.2, cancelWindow: 14, launch: 0.23,
+    reach: 1.1, radius: 0.55, height: 1.2, cancelWindow: 14, launch: 0.215,
     chain: { light: 'light1', kick: 'kick' }, knockdown: false, hitstop: 6, clip: 'LAUNCHER',
   }),
 

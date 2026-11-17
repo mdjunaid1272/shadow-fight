@@ -49,7 +49,7 @@ export const CHARACTERS: CharacterDef[] = [
     ratings: { power: 4, speed: 10, range: 3, defense: 4 },
     blurb: 'Strikes first, strikes fast. Every hit is light, but they never stop coming.',
     stats: {
-      id: 'shinobi', name: 'Shinobi', maxHealth: 900, walkSpeed: 0.064, backSpeed: 0.048,
+      id: 'shinobi', name: 'Shinobi', maxHealth: 900, walkSpeed: 0.064, backSpeed: 0.048, jump: 1.12, dodgeSpeed: 1.3, // nimble: highest jump, longest sidestep
       attacks: buildAttacks({
         startupAdd: -1, recoveryAdd: -2, damage: 0.75, reach: 0.88, lunge: 1.1,
         overrides: { // daggers: short, fast, narrow arcs
@@ -74,7 +74,7 @@ export const CHARACTERS: CharacterDef[] = [
     ratings: { power: 10, speed: 3, range: 4, defense: 8 },
     blurb: 'Every blow lands like a falling wall. Slow to start, impossible to ignore.',
     stats: {
-      id: 'titan', name: 'Titan', maxHealth: 1150, walkSpeed: 0.04, backSpeed: 0.03,
+      id: 'titan', name: 'Titan', maxHealth: 1150, walkSpeed: 0.04, backSpeed: 0.03, jump: 0.9, dodgeSpeed: 0.8, // heavy: low jump, short sidestep
       attacks: buildAttacks({
         startupAdd: 2, recoveryAdd: 3, damage: 1.3, reach: 0.95, hitstopAdd: 1,
         overrides: {
@@ -96,7 +96,7 @@ export const CHARACTERS: CharacterDef[] = [
     ratings: { power: 5, speed: 5, range: 10, defense: 5 },
     blurb: 'Keeps you at the tip of the spear. Once you close the gap, Akira is vulnerable.',
     stats: {
-      id: 'akira', name: 'Akira', maxHealth: 1000, walkSpeed: 0.05, backSpeed: 0.038,
+      id: 'akira', name: 'Akira', maxHealth: 1000, walkSpeed: 0.05, backSpeed: 0.04, jump: 1.0, dodgeSpeed: 1.1, // keeps away: quick back-step and sidestep
       attacks: buildAttacks({
         reach: 1.32, lunge: 1.2, damage: 1.1,
         overrides: { // spear: forward thrusts are lines, the heavy is a wide sweep

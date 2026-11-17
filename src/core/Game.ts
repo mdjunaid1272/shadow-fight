@@ -17,7 +17,9 @@ import { KeyboardInput } from '../input/KeyboardInput';
 import { isTouchDevice, TouchControls } from '../input/TouchControls';
 import { glowBoost, resolvePalette, type StoreItem } from '../progression/StoreData';
 import { SaveManager } from '../progression/SaveManager';
-import { HUD } from '../UI/HUD';
+import { HUD, type DummyMode } from '../UI/HUD';
+import { buildMoveList, onBlockAdvantage } from '../UI/MoveList';
+import { Tutorial, tutorialDone } from './Tutorial';
 import { Flow } from './Flow';
 import { Match } from './Match';
 import { VFX } from './VFX';
@@ -41,7 +43,7 @@ export interface MatchSummary {
   specials: number; perfectDodges: number; perfectRounds: number; playerHealthFrac: number;
 }
 
-export type DummyMode = 'idle' | 'block' | 'attack' | 'ai';
+export type { DummyMode };
 
 /** Battle runtime: renderer, scene, fixed-timestep loop, fighters and effects. Menus/progression live in Flow. */
 export class Game {
@@ -58,6 +60,16 @@ export class Game {
   private ai = new EnemyAI('NORMAL', 'BALANCED');
   private dummyAi = new EnemyAI('HARD', 'AGGRESSIVE');
   private dummyMode: DummyMode = 'idle';
+  private dummyBehavior: Behavior = 'BALANCED';
+  private dummyDifficulty: Difficulty = 'HARD';
+  private dummyTimer = 0;
+  private tutorial = new Tutorial();
+  private tutPos = { x: 0, z: 0 };
+  private tellTick = 0; private tellWas = false; private tick60 = 0;
+  /** Training read-outs: what the player did and how the last move behaves (frame data, damage). */
+  private trainStats = { parries: 0, techs: 0, guardBreaks: 0, dodges: 0 };
+  private lastMove: { name: string; startup: number; active: number; recovery: number; adv: number } | null = null;
+  private lastHit: { name: string; damage: number } | null = null;
   private keyboard = new KeyboardInput();
   touch: TouchControls | null = null;
   readonly hud: HUD;
@@ -114,7 +126,17 @@ export class Game {
     this.hud = new HUD(host, ['RONIN', 'SHINOBI']);
     this.hud.onMute = () => this.audio.toggleMute();
     this.hud.setMuteLabel(this.audio.muted);
-    this.hud.onDummy = (m) => { this.dummyMode = m; this.dummyAi.reset(); };
+    this.hud.onDummy = (m) => { if (this.tutorial.active) this.tutorial.stop(); /* choosing a drill takes over from the tutorial */ this.dummyMode = m; this.dummyAi.reset(); this.dummyTimer = 0; };
+    const rebuildDummyAi = () => { this.dummyAi = new EnemyAI(this.dummyDifficulty, this.dummyBehavior, undefined, this.defs[1]?.id); this.dummyAi.reset(); };
+    this.hud.onDummyBehavior = (b) => { this.dummyBehavior = b as Behavior; rebuildDummyAi(); };
+    this.hud.onDummyLevel = (l) => { this.dummyDifficulty = l as Difficulty; rebuildDummyAi(); };
+    this.hud.onMoveList = () => this.hud.showMoveList(this.hud.moveListOpen ? null : buildMoveList(this.defs[0]));
+    this.hud.onTutorial = () => { this.trainStats = { parries: 0, techs: 0, guardBreaks: 0, dodges: 0 }; this.tutorial.start(); };
+    this.tutorial.onChange = (step, i, n) => {
+      if (step) { this.dummyMode = step.dummy; this.dummyAi.reset(); this.dummyTimer = 0; this.hud.setTutorial({ n: i + 1, total: n, title: step.title, text: step.text, progress: 0 }); this.audio.play('ui', { vol: 0.6 }); }
+      else { this.dummyMode = 'idle'; this.hud.setTutorial(null); }
+    };
+    this.tutorial.onComplete = () => { this.hud.setTutorial(null, 'TUTORIAL COMPLETE - nice work!'); this.audio.play('ultimate', { vol: 0.5 }); setTimeout(() => this.hud.setTutorial(null), 2600); };
     this.hud.onTrainingReset = () => this.resetTraining();
     if (isTouchDevice()) {
       this.touch = new TouchControls(host); this.touch.show(false); host.classList.add('has-touch');
@@ -232,12 +254,16 @@ export class Game {
     if (this.arena.id !== o.arena) { this.arena.dispose(this.scene); this.arena = getArena(o.arena).create(); this.arena.build(this.scene, this.renderer); this.cam.setLimits(this.arena.cameraLimits ?? {}); }
     this.setupFighters(o.playerId, o.enemyId, o);
     this.models[0].root.visible = true; this.models[1].root.visible = true;
-    this.ai = new EnemyAI(o.difficulty, o.behavior);
+    this.ai = new EnemyAI(o.difficulty, o.behavior, undefined, this.defs[1].id);
     this.ai.onPhase = (ph) => { this.hud.showBanner(ph === 3 ? 'ENRAGED!' : `PHASE ${ph}`, ph === 3 ? 'FINAL PHASE' : 'THE BOSS GROWS STRONGER', 1.6); this.cam.addShake(0.2); this.audio.play('special'); };
-    this.dummyMode = 'idle'; this.dummyAi = new EnemyAI('HARD', 'AGGRESSIVE');
+    this.dummyMode = 'idle'; this.dummyAi = new EnemyAI(this.dummyDifficulty, this.dummyBehavior, undefined, this.defs[1].id);
+    this.trainStats = { parries: 0, techs: 0, guardBreaks: 0, dodges: 0 }; this.lastMove = null; this.lastHit = null; this.dummyTimer = 0;
+    this.tutorial.stop(); this.hud.showMoveList(null);
+    this.tutPos = { x: this.fighters[0].x, z: this.fighters[0].z };
+    if (o.practice && !tutorialDone() && !new URLSearchParams(location.search).has('bots')) this.tutorial.start(); // first visit to Training: guided tutorial
     this.counters = { specials: 0, perfectDodges: 0, perfectRounds: 0 };
     this.trainingCombo = { hits: 0, damage: 0, best: 0, last: 0 };
-    this.bot = new URLSearchParams(location.search).has('bots') ? new EnemyAI('HARD', 'AGGRESSIVE') : null;
+    this.bot = new URLSearchParams(location.search).has('bots') ? new EnemyAI('HARD', 'AGGRESSIVE', undefined, this.defs[0].id) : null;
     this.match.configure({ roundsToWin: o.roundsToWin, practice: o.practice });
     this.hud.setRoundPips(o.roundsToWin >= 2 ? 2 : 1);
     this.hud.setModeTag(o.modeTag);
@@ -319,14 +345,20 @@ export class Game {
       if (h.blocked) this.audio.play('block');
       else if (['kick', 'lowkick', 'airkick', 'sweep'].includes(h.attackId)) this.audio.play('impact_kick');
       else this.audio.play(this.defs[h.attacker].weapon === 'gauntlets' ? 'impact_punch' : 'impact_sword', { rate: h.knockdown ? 0.8 : 1 });
-      if (this.opts?.practice && h.attacker === 0 && !h.blocked) { this.trainingCombo.damage += h.damage; this.trainingCombo.hits++; this.updateTrainingInfo(); }
+      if (this.opts?.practice && h.attacker === 0 && !h.blocked) { this.trainingCombo.damage += h.damage; this.trainingCombo.hits++; this.lastHit = { name: h.attackId, damage: h.damage }; this.updateTrainingInfo(); }
+      if (this.opts?.practice) {
+        if (h.attacker === 0 && !h.blocked) { if (h.attackId.startsWith('light')) this.tutorial.note('lightHit'); else if (h.attackId === 'heavy') this.tutorial.note('heavyHit'); }
+        if (h.defender === 0 && h.blocked) this.tutorial.note('blocked');
+      }
     });
-    ev.on('attackStart', ({ id, startup }) => {
+    ev.on('attackStart', ({ who, id, startup }) => {
+      if (who === 0 && this.opts?.practice) { const a = this.fighters[0].stats.attacks[id]; if (a) { this.lastMove = { name: id, startup: a.startup, active: a.active, recovery: a.recovery, adv: a.grab ? 0 : onBlockAdvantage(a) }; this.updateTrainingInfo(); } }
       const heavy = ['heavy', 'special', 'ultimate', 'sweep', 'airheavy', 'counter', 'launcher'].includes(id);
       if (id === 'special' || id === 'ultimate') return; // dedicated sound on the 'special' event
       setTimeout(() => this.audio.play(heavy ? 'swing_heavy' : 'swing_light'), (startup * 0.55 / 60) * 1000);
     });
     ev.on('state', ({ who, from, to }) => {
+      if (who === 0 && this.opts?.practice) { if (to === 'jump' && from !== 'attack') this.tutorial.note('jumped'); else if (to === 'dodge') this.tutorial.note('dodged'); }
       if (to === 'jump' && from !== 'attack') this.audio.play('jump', { vol: 0.5 });
       else if (from === 'jump' && to === 'idle') { this.audio.play('land'); this.fx.dust(this.fighters[who].x, this.fighters[who].z, 7, 0.28, 1.2); }
       else if (to === 'dodge') { this.audio.play('dodge'); const f = this.fighters[who]; this.fx.dust(f.x, f.z, 6, 0.26, 1); }
@@ -334,6 +366,7 @@ export class Game {
     ev.on('special', (s) => {
       const ult = s.cinematic;
       if (s.who === 0) this.counters.specials++;
+      if (s.who === 0 && this.opts?.practice) this.tutorial.note(ult ? 'ultimate' : 'special');
       this.audio.play(ult ? 'ultimate' : 'special');
       this.fx.burst(s.x, s.y, s.z, this.defs[s.who].palette.glow, ult);
       this.cam.addShake(ult ? 0.2 : 0.1);
@@ -342,24 +375,25 @@ export class Game {
       if (s.who === 0) this.hud.showBanner(this.defs[0].abilities[ult ? 1 : 0].toUpperCase(), '', 0.8);
     });
     ev.on('ko', ({ loser }) => { const lf = this.fighters[loser]; this.fx.burst(lf.x, lf.y + 1, lf.z, 0xffffff, true); this.audio.play('ko'); if (this.cinematics) { this.cam.cinematic(this.fighters[loser], 1.1, 0.75, { low: 0.5 }); this.slowMo(0.3, 1.1); this.hud.letterbox(2.2); this.cam.zoomPulse(-0.1, 1.1, 0.6, 1.2); } });
-    ev.on('perfectDodge', ({ who }) => { const df = this.fighters[who]; this.fx.perfectDodge(df.x, df.y + 1, df.z); if (this.cinematics) { this.slowMo(0.55, 0.3); this.cam.zoomPulse(-0.06, 0.3, 0.1, 0.4); } if (who === 0) { this.counters.perfectDodges++; this.hud.showBanner('PERFECT DODGE', '', 0.6); } });
+    ev.on('perfectDodge', ({ who }) => { const df = this.fighters[who]; this.fx.perfectDodge(df.x, df.y + 1, df.z); if (this.cinematics) { this.slowMo(0.55, 0.3); this.cam.zoomPulse(-0.06, 0.3, 0.1, 0.4); } if (who === 0) { this.trainStats.dodges++; this.counters.perfectDodges++; this.hud.showBanner('PERFECT DODGE', '', 0.6); } });
     // ---- defensive events: parry (timed block), guard break, throws
     ev.on('parry', ({ who, x, y, z }) => {
       const pf = this.fighters[who];
       this.fx.burst(x, y, z, 0xffffff, false); this.fx.perfectDodge(pf.x, pf.y + 1, pf.z);
       this.audio.play('block', { rate: 1.8 }); this.cam.addShake(0.1);
       if (this.cinematics) { this.slowMo(0.5, 0.25); this.cam.zoomPulse(-0.05, 0.25, 0.08, 0.4); }
-      if (who === 0) this.hud.showBanner('PARRY', '', 0.6);
+      if (who === 0) { this.hud.showBanner('PARRY', '', 0.6); this.trainStats.parries++; this.tutorial.note('blocked'); this.updateTrainingInfo(); }
     });
     ev.on('guardBreak', ({ who }) => {
       const f = this.fighters[who];
       this.fx.burst(f.x, f.y + 1.1, f.z, 0xffb43a, true); this.audio.play('impact_punch', { rate: 0.7 }); this.cam.addShake(0.28);
       if (this.cinematics) this.slowMo(0.45, 0.3);
       this.hud.showBanner(who === 0 ? 'GUARD BROKEN' : 'GUARD BREAK', '', 0.8);
+      if (who === 1) { this.trainStats.guardBreaks++; this.updateTrainingInfo(); }
     });
     ev.on('grab', ({ attacker }) => { const f = this.fighters[attacker]; this.audio.play('impact_kick', { rate: 0.8 }); this.fx.dust(f.x, f.z, 5, 0.2, 0.8); });
-    ev.on('tech', ({ who }) => { this.audio.play('dodge'); if (who === 0) this.hud.showBanner('TECH', '', 0.5); });
-    ev.on('combo', ({ owner, count }) => { if (count >= 4 && count % 4 === 0 && this.cinematics) { this.slowMo(0.5, 0.22); this.cam.zoomPulse(-0.05, 0.25, 0.08, 0.4); } /* combo milestone */ if (owner === 0) { this.hud.showCombo(count); if (this.opts?.practice) { this.trainingCombo.last = count; this.trainingCombo.best = Math.max(this.trainingCombo.best, count); this.updateTrainingInfo(); } } });
+    ev.on('tech', ({ who }) => { this.audio.play('dodge'); if (who === 0) { this.hud.showBanner('TECH', '', 0.5); this.trainStats.techs++; this.updateTrainingInfo(); } });
+    ev.on('combo', ({ owner, count }) => { if (count >= 4 && count % 4 === 0 && this.cinematics) { this.slowMo(0.5, 0.22); this.cam.zoomPulse(-0.05, 0.25, 0.08, 0.4); } /* combo milestone */ if (owner === 0) { this.hud.showCombo(count); if (this.opts?.practice && count >= 3) this.tutorial.note('combo'); if (this.opts?.practice) { this.trainingCombo.last = count; this.trainingCombo.best = Math.max(this.trainingCombo.best, count); this.updateTrainingInfo(); } } });
     ev.on('comboEnd', ({ owner }) => { if (owner === 0) { setTimeout(() => this.hud.hideCombo(), 600); if (this.opts?.practice) { this.trainingCombo.hits = 0; this.trainingCombo.damage = 0; } } });
 
     this.match.events.on('roundIntro', ({ round }) => {
@@ -402,8 +436,12 @@ export class Game {
   }
 
   private updateTrainingInfo(): void {
-    const t = this.trainingCombo;
-    this.hud.setTrainingInfo(`Combo: <b>${t.hits}</b> hits &middot; <b>${Math.round(t.damage)}</b> dmg<br>Last: ${t.last} &middot; Best: ${t.best}`);
+    const t = this.trainingCombo, s = this.trainStats, m = this.lastMove, h = this.lastHit;
+    const adv = m ? (m.adv > 0 ? `+${m.adv}` : String(m.adv)) : '';
+    this.hud.setTrainingInfo(
+      `Combo: <b>${t.hits}</b> hits &middot; <b>${Math.round(t.damage)}</b> dmg &middot; Last ${t.last} &middot; Best ${t.best}<br>` +
+      `Move: <b>${m ? m.name : '-'}</b> ${m ? `${m.startup}/${m.active}/${m.recovery}f &middot; block ${adv}` : ''}${h ? ` &middot; hit ${h.damage}` : ''}<br>` +
+      `Parry <b>${s.parries}</b> &middot; Tech <b>${s.techs}</b> &middot; Dodge <b>${s.dodges}</b> &middot; Guard break <b>${s.guardBreaks}</b>`);
   }
 
   private setControlsEnabled(on: boolean): void {
@@ -441,7 +479,14 @@ export class Game {
       else ein = this.ai.think(e, p);
     } else { pin = emptyInput(); ein = emptyInput(); } // hitstop: key presses stay queued and apply afterwards
     this.combat.step([pin, ein]);
-    if (this.opts?.practice) { p.health = p.stats.maxHealth; e.health = e.stats.maxHealth; p.energy = 100; }
+    if (this.opts?.practice) {
+      p.health = p.stats.maxHealth; e.health = e.stats.maxHealth; p.energy = 100; if (this.dummyMode === 'dodge') e.energy = 100;
+      if (this.tutorial.active) { // progress: distance walked, and keep the banner's bar fresh
+        if (p.state === 'walk') this.tutorial.note('moved', Math.hypot(p.x - this.tutPos.x, p.z - this.tutPos.z));
+        const st = this.tutorial.step; if (st && this.tick60++ % 6 === 0) this.hud.setTutorial({ n: this.tutorial.index + 1, total: this.tutorial.count, title: st.title, text: st.text, progress: this.tutorial.progress });
+      }
+      this.tutPos = { x: p.x, z: p.z };
+    }
     // footsteps on a fixed cadence while walking
     this.fighters.forEach((f, i) => {
       if (f.state === 'walk' && !this.combat.frozen) {
@@ -451,10 +496,24 @@ export class Game {
     this.combatVfx();
   }
 
+  private dummyDrill(e: Fighter, p: Fighter, btn: 'light' | 'special' | 'grab', every: number, range: number): FighterInput {
+    const inp = emptyInput(); const d = Math.hypot(p.x - e.x, p.z - e.z);
+    if (!e.neutral) return inp;
+    if (d > range + 0.15) { inp.fwd = 1; return inp; }
+    if (d < range - 0.45 && btn !== 'grab') { inp.fwd = -1; return inp; }
+    if (++this.dummyTimer >= every) { this.dummyTimer = 0; inp.pressed.push(btn); }
+    return inp;
+  }
+
   private dummyInput(e: Fighter, p: Fighter): FighterInput {
     switch (this.dummyMode) {
       case 'block': return { ...emptyInput(), block: true };
+      case 'crouch': return { ...emptyInput(), crouch: true };
       case 'attack': case 'ai': return this.dummyAi.think(e, p);
+      // drills: the dummy walks into range and throws one move on a fixed rhythm so a skill can be practised
+      case 'parry': return this.dummyDrill(e, p, 'light', 80, 1.55);   // slow single hits: block, parry (tap back as it lands), counter
+      case 'dodge': return this.dummyDrill(e, p, 'special', 120, 2.6); // telegraphed dash: sidestep it
+      case 'throw': return this.dummyDrill(e, p, 'grab', 95, 1.0);     // throws: tech with G
       default: return emptyInput();
     }
   }
@@ -462,6 +521,13 @@ export class Game {
   /** Attack-driven effects, run on the fixed sim clock so they never double-fire at high refresh rates. */
   private combatVfx(): void {
     if (this.combat.frozen) return;
+    // boss telegraph: a gathering glow while the boss visibly winds up a major attack
+    if (!this.opts?.practice && this.ai.telegraphing) {
+      const e = this.fighters[1];
+      if (!this.tellWas) { this.audio.play('special', { vol: 0.4, rate: 0.7 }); this.cam.addShake(0.08); }
+      if (this.tellTick++ % 5 === 0) this.fx.chargeWisps(e.x, e.y + 1, e.z, this.defs[1].palette.glow, 2);
+    } else this.tellTick = 0;
+    this.tellWas = !this.opts?.practice && this.ai.telegraphing;
     this.fighters.forEach((f, i) => {
       const a = f.attack, glow = this.defs[i].palette.glow;
       // landing after a launch / knockdown

@@ -2,8 +2,10 @@ import { RONIN } from '../src/combat/AttackData';
 import { CombatManager } from '../src/combat/CombatManager';
 import { Fighter } from '../src/combat/Fighter';
 import { emptyInput, type Button, type FighterInput } from '../src/combat/types';
-import { EnemyAI } from '../src/ai/EnemyAI';
-import { getCharacter } from '../src/characters/CharacterData';
+import { EnemyAI, type Behavior, type Difficulty } from '../src/ai/EnemyAI';
+import { CHARACTERS, getCharacter } from '../src/characters/CharacterData';
+import { Tutorial, TUTORIAL_STEPS } from '../src/core/Tutorial';
+import { buildMoveList, comboRoutes, onBlockAdvantage, onHitAdvantage } from '../src/UI/MoveList';
 
 let fails = 0;
 const ok = (c: boolean, m: string) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fails++; };
@@ -582,6 +584,193 @@ import { ModeManager, STORY, CHAPTERS } from '../src/core/Modes';
     for (let i = 0; i < 900; i++) { a.x = b.x - 0.9; a.z = b.z; cm.step([press('light'), idle()]); if (b.state === 'idle') free++; if (b.state === 'knockdown' || b.state === 'getup') free++; if (b.health <= 1) b.health = 600; }
     ok(free > 20, `C3 nonstop light spam cannot stun-lock the opponent (${free} free/down frames in 900)`);
   }
+}
+
+// ================================================================ PRIORITY 3: enemy AI behaviour
+{
+  type Cfg = { char?: string; diff?: Difficulty; beh?: Behavior; seed?: number };
+  const mkAI = (c: Cfg) => new EnemyAI(c.diff ?? 'NORMAL', c.beh ?? 'BALANCED', c.seed ?? 1, c.char ?? 'ronin');
+  const pair = (ca = 'ronin', cb = 'ronin') => {
+    const a = new Fighter(getCharacter(ca).stats, bounds), b = new Fighter(getCharacter(cb).stats, bounds);
+    a.reset(-0.9, 0, 1); b.reset(0.9, 0, -1); return { a, b, cm: new CombatManager([a, b]) };
+  };
+  const summary = (i: FighterInput) => `${i.fwd.toFixed(1)}|${i.side ?? 0}|${i.jump ? 1 : 0}|${i.block ? 1 : 0}|${i.crouch ? 1 : 0}|${i.dodge}|${i.pressed.join('+')}`;
+  /** AI (fighter b) against a scripted fighter a. The scripted fighter's health is topped up so long runs stay comparable. */
+  const vsScript = (ai: EnemyAI, frames: number, script: (f: number, a: Fighter, b: Fighter) => FighterInput, opt: { ca?: string; cb?: string; topUp?: boolean; energy?: number; observe?: (f: number, a: Fighter, b: Fighter, inp: FighterInput) => void } = {}) => {
+    const { a, b, cm } = pair(opt.ca ?? 'ronin', opt.cb ?? 'ronin'); let distSum = 0; const trace: string[] = [];
+    const counts = { hit: 0, blocked: 0, parry: 0, guardBreak: 0, aiDamage: 0 };
+    cm.events.on('hit', (h) => { if (h.attacker === 1) { counts.hit++; counts.aiDamage += h.damage; } else if (h.blocked) counts.blocked++; });
+    cm.events.on('parry', (p) => { if (p.who === 1) counts.parry++; });
+    cm.events.on('guardBreak', () => counts.guardBreak++);
+    for (let f = 0; f < frames; f++) {
+      if (opt.topUp !== false) { a.health = a.stats.maxHealth; if (a.state === 'defeat') a.setState('idle'); }
+      if (opt.energy !== undefined) b.energy = opt.energy;
+      const inp = ai.think(b, a); opt.observe?.(f, a, b, inp);
+      if (trace.length < 3000) trace.push(summary(inp));
+      cm.step([script(f, a, b), inp]); distSum += Math.hypot(a.x - b.x, a.z - b.z);
+    }
+    return { a, b, cm, trace, counts, meanDist: distSum / frames };
+  };
+  const idleScript = () => emptyInput();
+  const periodic = (every: number, ...btns: Button[]) => (f: number): FighterInput => (f % every === 0 ? { ...emptyInput(), pressed: [btns[Math.floor(f / every) % btns.length]] } : emptyInput());
+
+  // ---- AI1: seeded randomness -> exact replays; different seeds -> different fights
+  { const run = (seed: number) => vsScript(mkAI({ seed, diff: 'HARD', beh: 'AGGRESSIVE' }), 1200, periodic(40, 'light', 'heavy', 'kick')).trace.join(',');
+    ok(run(7) === run(7), 'AI1 same seed replays an identical fight (inputs match frame for frame)');
+    ok(run(7) !== run(8), 'AI1 a different seed plays differently');
+  }
+  // ---- AI2: human-like reaction delay: never reacts before its reaction time, and EASY is slower than HARD
+  { const REACT: Record<string, number> = { EASY: 11, NORMAL: 7, HARD: 3 }; const best: Record<string, number> = {};
+    for (const diff of ['EASY', 'NORMAL', 'HARD'] as Difficulty[]) {
+      let min = 999;
+      for (let seed = 1; seed <= 60; seed++) {
+        const ai = mkAI({ diff, seed, beh: 'DEFENSIVE' }); const { a, b, cm } = pair(); a.x = -0.4; ai.reset(); let t0 = -1, first = -1;
+        for (let f = 0; f < 40 && first < 0; f++) {
+          const inp = ai.think(b, a); const defensive = inp.block || inp.crouch || inp.dodge !== 0; // (plain back-stepping is ordinary spacing, not a reaction)
+          if (t0 >= 0 && defensive) first = f - t0;
+          cm.step([f === 0 ? press('heavy') : emptyInput(), inp]); if (a.state === 'attack' && t0 < 0) t0 = f;
+          if (b.state !== 'idle' && b.state !== 'walk' && b.state !== 'block') break;
+        }
+        if (first >= 0) min = Math.min(min, first);
+      }
+      best[diff] = min;
+    }
+    ok(best.EASY >= REACT.EASY && best.NORMAL >= REACT.NORMAL && best.HARD >= REACT.HARD, `AI2 never reacts faster than its reaction time (fastest: EASY ${best.EASY}f, NORMAL ${best.NORMAL}f, HARD ${best.HARD}f)`);
+    ok(best.EASY > best.HARD, 'AI2 harder AIs react faster than easier ones');
+  }
+  // ---- AI3: no perfect defence - even HARD gets hit by a steady stream of lights
+  { const r = vsScript(mkAI({ diff: 'HARD', beh: 'DEFENSIVE', seed: 3 }), 4000, periodic(30, 'light'));
+    const hitsOnAi = r.counts.blocked; void hitsOnAi;
+    ok(r.b.health < r.b.stats.maxHealth, `AI3 HARD still takes damage (${r.b.stats.maxHealth - r.b.health} lost) - it does not block everything`);
+  }
+  // ---- AI4: no cheating - it cannot act while stunned, and uses only the energy its meter holds
+  { const ai = mkAI({ diff: 'HARD', beh: 'AGGRESSIVE', seed: 4 }); let actedWhileStunned = 0, specialsWithoutEnergy = 0;
+    const r = vsScript(ai, 5000, periodic(25, 'light', 'heavy', 'light', 'kick'), { observe: (_f, _a, b, inp) => {
+      if (!b.neutral && b.state !== 'attack' && (inp.pressed.length || inp.jump || inp.dodge !== 0 || Math.abs(inp.fwd) > 0)) actedWhileStunned++;
+      if (inp.pressed.some((p) => p === 'special' || p === 'ultimate') && b.energy < 40) specialsWithoutEnergy++;
+    } });
+    ok(actedWhileStunned === 0, `AI4 sends no movement or attacks while stunned/down (${actedWhileStunned})`);
+    ok(specialsWithoutEnergy === 0 && r.b.energy <= 100, 'AI4 never calls a shadow ability without the energy for it');
+  }
+  // ---- AI5: decision variety - it uses several different attacks and does not loop one move
+  { const ai = mkAI({ diff: 'NORMAL', beh: 'BALANCED', seed: 5 }); vsScript(ai, 9000, idleScript);
+    const moves = Object.entries(ai.stats).filter(([k]) => ['light1', 'kick', 'heavy', 'lowkick', 'sweep', 'launcher', 'grab', 'special', 'ultimate'].includes(k));
+    const total = moves.reduce((s, [, v]) => s + v, 0), top = Math.max(...moves.map(([, v]) => v));
+    ok(moves.length >= 5 && total > 30, `AI5 uses ${moves.length} different attacks over ${total} decisions`);
+    ok(top / total < 0.55, `AI5 no single move dominates (most common ${(100 * top / total).toFixed(0)}%)`);
+  }
+  // ---- AI6: behaviour profiles are visibly different
+  { const aggr = mkAI({ beh: 'AGGRESSIVE', seed: 6 }), def = mkAI({ beh: 'DEFENSIVE', seed: 6 });
+    const ra = vsScript(aggr, 7000, idleScript), rd = vsScript(def, 7000, idleScript);
+    ok(aggr.attackCount > def.attackCount * 1.3, `AI6 AGGRESSIVE attacks far more than DEFENSIVE (${aggr.attackCount} vs ${def.attackCount})`);
+    ok(rd.meanDist > ra.meanDist + 0.12, `AI6 DEFENSIVE keeps more distance (${rd.meanDist.toFixed(2)} m vs ${ra.meanDist.toFixed(2)} m)`);
+    const tech = mkAI({ beh: 'TECHNICAL', seed: 6, diff: 'HARD' }); vsScript(tech, 7000, periodic(55, 'heavy', 'light', 'kick'));
+    ok((tech.stats.whiffPunish ?? 0) + (tech.stats.punish ?? 0) + (tech.stats.crouchGuard ?? 0) + (tech.stats.parryTry ?? 0) > 3, `AI6 TECHNICAL reads recovery windows and defends with height/parry (${tech.stats.whiffPunish ?? 0} whiff punishes, ${tech.stats.crouchGuard ?? 0} crouch guards, ${tech.stats.parryTry ?? 0} parry tries)`);
+  }
+  // ---- AI7: it uses the new mechanics: crouch-guards lows, parries, throws turtles, counters
+  { const ai = mkAI({ diff: 'HARD', beh: 'TECHNICAL', seed: 7 });
+    vsScript(ai, 6000, (f) => (f % 50 === 0 ? { ...emptyInput(), crouch: true, pressed: ['kick'] } : emptyInput()));
+    ok((ai.stats.crouchGuard ?? 0) >= 3, `AI7 crouch-guards low attacks (${ai.stats.crouchGuard ?? 0} times)`);
+    const par = mkAI({ diff: 'HARD', beh: 'DEFENSIVE', seed: 11 }); const rp = vsScript(par, 12000, periodic(45, 'light', 'heavy', 'kick'));
+    ok((par.stats.parryTry ?? 0) >= 3 && rp.counts.parry >= 1, `AI7 HARD tries parries (${par.stats.parryTry} tries) and lands some (${rp.counts.parry})`);
+    const attacksAtAi = Math.floor(12000 / 45);
+    ok(rp.counts.parry < attacksAtAi * 0.35, `AI7 it does not parry everything (${rp.counts.parry} parries against ${attacksAtAi} attacks)`);
+    const turtle = mkAI({ diff: 'HARD', beh: 'AGGRESSIVE', seed: 9, char: 'titan' });
+    vsScript(turtle, 5000, () => ({ ...emptyInput(), block: true }), { cb: 'titan' });
+    ok((turtle.stats.grab ?? 0) >= 2, `AI7 throws opponents who only block (${turtle.stats.grab ?? 0} grabs)`);
+    const ctr = mkAI({ diff: 'HARD', beh: 'DEFENSIVE', seed: 12 }); vsScript(ctr, 20000, periodic(40, 'light', 'heavy'));
+    ok((ctr.stats.counter ?? 0) >= 1, `AI7 follows a successful parry with the counter attack (${ctr.stats.counter ?? 0})`);
+  }
+  // ---- AI8: each character is played in its own style
+  { // the distance at which each AI chooses to START an attack = the range it likes to fight at
+    const atkDist = (id: string) => { const ai = mkAI({ char: id, seed: 8 }); const d: number[] = [];
+      vsScript(ai, 9000, () => ({ ...emptyInput(), block: true }), { cb: id, observe: (_f, a, b, inp) => { if (b.neutral && inp.pressed.some((p) => p === 'light' || p === 'kick' || p === 'heavy')) d.push(Math.hypot(a.x - b.x, a.z - b.z)); } });
+      return d.reduce((s, v) => s + v, 0) / Math.max(1, d.length); };
+    const spear = atkDist('akira'), dag = atkDist('shinobi');
+    ok(spear > dag + 0.3, `AI8 Akira attacks from range (${spear.toFixed(2)} m), Shinobi from close (${dag.toFixed(2)} m)`);
+    const t = mkAI({ char: 'titan', seed: 8 }); vsScript(t, 9000, idleScript, { cb: 'titan' });
+    const s = mkAI({ char: 'shinobi', seed: 8 }); vsScript(s, 9000, idleScript, { cb: 'shinobi' });
+    const heavyShare = (ai: EnemyAI) => (ai.stats.heavy ?? 0) / Math.max(1, ai.attackCount);
+    ok(heavyShare(t) > heavyShare(s), `AI8 Titan favours heavy blows more than Shinobi (${(100 * heavyShare(t)).toFixed(0)}% vs ${(100 * heavyShare(s)).toFixed(0)}%)`);
+  }
+  // ---- AI9: boss - telegraphs major attacks, and phases change its strategy
+  { const boss = mkAI({ diff: 'HARD', beh: 'BOSS', seed: 13 }); let tellFrames = 0, longest = 0, movedDuringTell = 0, tellsSeen = 0, wasTell = false;
+    vsScript(boss, 9000, idleScript, { energy: 100, observe: (_f, _a, _b, inp) => {
+      if (boss.telegraphing) { tellFrames++; if (Math.abs(inp.fwd) > 0 || inp.pressed.length || inp.dodge) movedDuringTell++; if (!wasTell) tellsSeen++; }
+      else { longest = Math.max(longest, tellFrames); tellFrames = 0; }
+      wasTell = boss.telegraphing;
+    } });
+    ok(tellsSeen >= 2 && longest >= 10, `AI9 the boss telegraphs special/ultimate attacks (${tellsSeen} tells, longest ${longest} frames)`);
+    ok(movedDuringTell === 0, 'AI9 the boss stands still while telegraphing (a fair, visible warning)');
+    const rate = (hpFrac: number) => { const ai = mkAI({ diff: 'NORMAL', beh: 'BOSS', seed: 21 }); const { a, b, cm } = pair(); b.health = b.stats.maxHealth * hpFrac; ai.reset();
+      for (let f = 0; f < 5000; f++) { a.health = 1000; if (a.state === 'defeat') a.setState('idle'); b.health = b.stats.maxHealth * hpFrac; cm.step([emptyInput(), ai.think(b, a)]); } return { atk: ai.attackCount, phase: ai.phase }; };
+    const p1 = rate(0.9), p3 = rate(0.2);
+    ok(p1.phase === 1 && p3.phase === 3 && p3.atk > p1.atk * 1.15, `AI9 the enraged phase 3 attacks more than phase 1 (${p3.atk} vs ${p1.atk} attacks)`);
+  }
+  // ---- AI10: full AI-vs-AI matches for every pairing finish without stalls
+  { let stalls = 0, longestIdle = 0, finished = 0, total = 0; const ids = ['ronin', 'shinobi', 'titan', 'akira'];
+    for (const ca of ids) for (const cb of ids) {
+      const { a, b, cm } = pair(ca, cb); const A = new EnemyAI('HARD', 'BALANCED', 31, ca), B = new EnemyAI('HARD', 'AGGRESSIVE', 32, cb);
+      let idleRun = 0, ko = false; cm.events.on('ko', () => { ko = true; });
+      for (let f = 0; f < 3600 && !ko; f++) { cm.step([A.think(a, b), B.think(b, a)]); idleRun = a.state === 'attack' || b.state === 'attack' || a.inCombo || b.inCombo ? 0 : idleRun + 1; longestIdle = Math.max(longestIdle, idleRun); }
+      total++; if (ko || a.health !== a.stats.maxHealth || b.health !== b.stats.maxHealth) finished++;
+    }
+    stalls = longestIdle > 420 ? 1 : 0;
+    ok(finished === total, `AI10 all ${total} character pairings engage and trade blows`);
+    ok(stalls === 0, `AI10 no stalemates (longest passive spell ${(longestIdle / 60).toFixed(1)} s)`);
+  }
+}
+
+// ================================================================ PRIORITY 3: training tools - tutorial, move list, frame data
+{
+  // ---- tutorial: steps complete only on the real action, in order, and finish
+  { const tut = new Tutorial(); const seen: string[] = []; let done = false;
+    tut.onChange = (s) => { if (s) seen.push(s.id); }; tut.onComplete = () => { done = true; };
+    tut.start();
+    ok(tut.active && tut.step?.id === 'move' && tut.count === 9, 'TR1 the tutorial starts at step 1 of 9 (movement)');
+    tut.note('lightHit'); tut.note('heavyHit'); ok(tut.step?.id === 'move', 'TR1 unrelated actions do not complete a step');
+    tut.note('moved', 1.2); ok(tut.step?.id === 'move' && Math.abs(tut.progress - 0.4) < 0.01, 'TR1 distance steps show progress');
+    tut.note('moved', 2); ok(tut.step?.id === 'jump', 'TR1 walking 3 m completes MOVE');
+    tut.note('jumped'); tut.note('lightHit'); tut.note('heavyHit'); tut.note('blocked'); tut.note('dodged'); tut.note('combo'); tut.note('special'); tut.note('ultimate');
+    ok(done && !tut.active, `TR1 completing every action in order finishes the tutorial (${seen.join(' > ')})`);
+    ok(seen.join(',') === 'move,jump,light,heavy,block,dodge,combo,special,ultimate', 'TR1 it teaches movement, jumping, attacks, blocking, dodging, combos, special and ultimate in that order');
+  }
+  { // actions done BEFORE a step starts do not count for it (no accidental skipping)
+    const tut = new Tutorial(); tut.start(); tut.note('moved', 5); tut.note('lightHit'); tut.note('lightHit');
+    ok(tut.step?.id === 'jump', 'TR2 early extra actions are not banked: step 3 still needs a fresh light hit');
+    tut.note('jumped'); ok(tut.step?.id === 'light', 'TR2 step 3 waits for a NEW light hit');
+    tut.note('lightHit'); ok(tut.step?.id === 'heavy', 'TR2 a fresh light hit completes it');
+  }
+  { const tut = new Tutorial(); tut.start(); tut.stop(); tut.note('moved', 99); ok(!tut.active && tut.step === null, 'TR3 a stopped tutorial ignores input'); }
+  ok(TUTORIAL_STEPS.every((s) => s.text.length > 10 && s.need > 0), 'TR4 every step has instructions and a goal');
+
+  // ---- frame data and move list
+  const R = getCharacter('ronin');
+  ok(onBlockAdvantage(R.stats.attacks.light1) === R.stats.attacks.light1.blockstun - (R.stats.attacks.light1.active - 1 + R.stats.attacks.light1.recovery), 'MV1 frame advantage = blockstun - remaining attack frames');
+  ok(onBlockAdvantage(R.stats.attacks.heavy) < onBlockAdvantage(R.stats.attacks.light1), 'MV1 heavy attacks are more punishable on block than lights');
+  ok(onHitAdvantage(R.stats.attacks.heavy) === 'KD' && onHitAdvantage(R.stats.attacks.launcher) === 'KD', 'MV1 knockdowns and launchers report KD');
+  for (const c of CHARACTERS) {
+    const html = buildMoveList(c), routes = comboRoutes(c);
+    ok(['Light 1', 'Kick', 'Heavy', 'Low Kick', 'Sweep', 'Launcher', 'Throw', 'Counter', 'Air Light', 'Air Heavy', 'Air Kick', 'Special', 'Ultimate'].every((n) => html.includes(n)), `MV2 ${c.id}: move list shows every move with its input and frame data`);
+    ok(routes.length >= 3 && routes.every((r) => r.damage > 0 && r.moves.length >= 2), `MV3 ${c.id}: ${routes.length} combo routes generated from the chain data (best ${routes[0]?.damage} dmg)`);
+    const longestLight = (() => { let n = 1, k = 'light1'; while (c.stats.attacks[k].chain.light) { k = c.stats.attacks[k].chain.light!; n++; } return n; })();
+    ok(html.includes('Light 2') && (longestLight >= 3) === html.includes('Light 3') && (longestLight >= 4) === html.includes('Light 4'), `MV4 ${c.id}: the list only shows the light attacks its chain really has (${longestLight})`);
+  }
+  ok(comboRoutes(CHARACTERS[1]).some((r) => r.inputs.split('>').length >= 5), 'MV5 Shinobi\'s 4-hit flurry (and finisher) appears in his combo list');
+  ok(comboRoutes(CHARACTERS[0]).some((r) => r.inputs.startsWith('C+J')), 'MV5 launcher juggle routes are listed');
+
+  // ---- per-character movement identity
+  const S = Object.fromEntries(CHARACTERS.map((c) => [c.id, c.stats]));
+  ok(S.shinobi.walkSpeed > S.ronin.walkSpeed && S.ronin.walkSpeed > S.titan.walkSpeed, 'CH1 walk speed: Shinobi > Ronin > Titan');
+  const peak = (id: string) => { const f = new Fighter(S[id], bounds); const g = new Fighter(S.ronin, bounds); f.reset(-5, 0, 1); g.reset(5, 0, -1); const cm = new CombatManager([f, g]); let y = 0; cm.step([{ ...emptyInput(), jump: true }, emptyInput()]); for (let i = 0; i < 60; i++) { cm.step([emptyInput(), emptyInput()]); y = Math.max(y, f.y); } return y; };
+  ok(peak('shinobi') > peak('ronin') && peak('ronin') > peak('titan'), `CH2 jump height differs: Shinobi ${peak('shinobi').toFixed(2)} > Ronin ${peak('ronin').toFixed(2)} > Titan ${peak('titan').toFixed(2)} m`);
+  const sidestep = (id: string) => { const f = new Fighter(S[id], bounds); const g = new Fighter(S.ronin, bounds); f.reset(-5, 0, 1); g.reset(5, 0, -1); const cm = new CombatManager([f, g]); cm.step([{ ...emptyInput(), dodge: 1 }, emptyInput()]); for (let i = 0; i < 30; i++) cm.step([emptyInput(), emptyInput()]); return Math.abs(f.z); };
+  ok(sidestep('shinobi') > sidestep('ronin') && sidestep('ronin') > sidestep('titan'), `CH3 sidestep distance differs: Shinobi ${sidestep('shinobi').toFixed(2)} > Ronin ${sidestep('ronin').toFixed(2)} > Titan ${sidestep('titan').toFixed(2)} m`);
+  ok(S.titan.maxHealth > S.ronin.maxHealth && S.ronin.maxHealth > S.shinobi.maxHealth, 'CH4 health: Titan > Ronin > Shinobi');
+  const dmg = (id: string) => S[id].attacks.heavy.damage;
+  ok(dmg('titan') > dmg('ronin') && dmg('ronin') > dmg('shinobi'), `CH5 heavy damage: Titan ${dmg('titan')} > Ronin ${dmg('ronin')} > Shinobi ${dmg('shinobi')}`);
+  ok(S.akira.attacks.light1.reach > S.ronin.attacks.light1.reach && S.ronin.attacks.light1.reach > S.shinobi.attacks.light1.reach, 'CH6 reach: Akira > Ronin > Shinobi');
+  ok(S.shinobi.attacks.light1.startup < S.ronin.attacks.light1.startup && S.titan.attacks.light1.startup > S.ronin.attacks.light1.startup, 'CH7 light startup: Shinobi fastest, Titan slowest');
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASSED');

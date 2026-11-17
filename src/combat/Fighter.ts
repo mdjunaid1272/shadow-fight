@@ -113,6 +113,10 @@ export class Fighter {
 
   get neutral(): boolean { return this.state === 'idle' || this.state === 'walk' || this.state === 'block' || this.state === 'crouch'; }
   get crouching(): boolean { return this.state === 'crouch'; }
+  /** A fresh guard would open a parry window right now (the controller - human or AI - may read its own fighter's state). */
+  get canParry(): boolean { return this.parryCooldown === 0 && this.parryWindow === 0; }
+  /** Frames until the current attack has fully finished (0 when not attacking). */
+  get attackRemaining(): number { const a = this.attack; return this.state === 'attack' && a ? Math.max(0, a.startup + a.active + a.recovery - this.attackFrame) : 0; }
   get grounded(): boolean { return this.y <= 0.0001; }
   /** True while the fighter can be hit and is in a state that counts as a combo victim. */
   get inCombo(): boolean { return this.state === 'hitstun' || (this.state === 'knockdown' && !this.grounded); }
@@ -244,7 +248,7 @@ export class Fighter {
     }
     const side = Math.max(-1, Math.min(1, inp.side ?? 0));
     if (inp.jump) {
-      this.setState('jump'); this.vy = JUMP_VY;
+      this.setState('jump'); this.vy = JUMP_VY * (this.stats.jump ?? 1);
       const t = this.airTarget(inp.fwd, side);
       this.jvx = t.x; this.jvz = t.z; return;
     }
@@ -357,7 +361,7 @@ export class Fighter {
   private stepDodge(): void {
     const f = this.stateFrame;
     this.invulnerable = f >= 3 && f <= 16;
-    if (f <= 14) this.z += this.dodgeDir * 0.13 * (1 - f / 18);
+    if (f <= 14) this.z += this.dodgeDir * 0.13 * (this.stats.dodgeSpeed ?? 1) * (1 - f / 18);
     if (f >= DODGE_FRAMES) this.setState('idle');
   }
 
@@ -408,7 +412,7 @@ export class Fighter {
     if (airborne) this.juggle++; else this.juggle = 0;
     if (this.health <= 0 || att.knockdown || att.launch || airborne) {
       this.setState(this.health <= 0 ? 'defeat' : 'knockdown');
-      const pop = airborne ? 0.13 * Math.pow(0.8, this.juggle) : (att.launch ?? 0.16);
+      const pop = airborne ? 0.125 * Math.pow(0.8, this.juggle) : (att.launch ?? 0.16);
       this.vy = airborne ? Math.max(this.vy, 0) + pop : pop;
       this.y = Math.max(this.y, 0.001);
       const kb = att.launch && !att.knockdown ? att.knockback : Math.max(att.knockback, 0.2);

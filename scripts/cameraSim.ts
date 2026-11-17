@@ -37,7 +37,7 @@ export function run(tune: Partial<Tuning>, seconds = 240, aspect = 16 / 9, opts:
   const [ra, sh] = [CHARACTERS[0], CHARACTERS[1]];
   const a = new Fighter(ra.stats, bounds), b = new Fighter(sh.stats, bounds); a.reset(-2.3, 0, 1); b.reset(2.3, 0, -1);
   const cm = new CombatManager([a, b]);
-  const ai1 = new EnemyAI('NORMAL', 'BALANCED'), ai2 = new EnemyAI('NORMAL', 'AGGRESSIVE');
+  const ai1 = new EnemyAI('NORMAL', 'BALANCED', 101, 'ronin'), ai2 = new EnemyAI('NORMAL', 'AGGRESSIVE', 202, 'shinobi'); // seeded: repeatable runs
   const cam = new FightingCamera(bounds, aspect); Object.assign(cam.tuning, tune); if (opts.insetBottom) cam.setInsets({ bottom: opts.insetBottom });
   cam.snap(a, b);
   let cutCooldown = 0;

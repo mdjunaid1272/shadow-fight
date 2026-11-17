@@ -28,6 +28,17 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); o
 .guard .fill { height: 100%; width: 0; background: linear-gradient(90deg, #7fd36b, #d6f06a); transition: width .1s linear; }
 .guard.hot .fill { background: linear-gradient(90deg, #ffb43a, #ff5a3a); }
 .guard.broken .fill { background: #ff2a4a; animation: pulse .2s infinite alternate; }
+.tutorial { position: absolute; top: clamp(78px, 13vh, 118px); left: 50%; transform: translateX(-50%); width: min(560px, 92vw); padding: 10px 16px; background: rgba(8,12,24,.86); border: 2px solid var(--amber); text-align: center; z-index: 6; pointer-events: none; font-family: var(--display); }
+.tutorial small { display: block; color: #7f89a8; letter-spacing: .2em; font-size: 12px; }
+.tutorial b { display: block; color: var(--amber); letter-spacing: .12em; font-size: clamp(18px, 3vw, 26px); }
+.tutorial span { display: block; color: #e8ecf8; font-size: clamp(13px, 1.9vw, 16px); letter-spacing: .03em; margin-top: 2px; font-family: var(--body, sans-serif); }
+.tutorial i { display: block; height: 5px; background: #05060b; margin-top: 8px; } .tutorial u { display: block; height: 100%; background: var(--amber); text-decoration: none; transition: width .15s linear; }
+.movelist .panel { width: min(780px, 94vw); box-sizing: border-box; max-width: min(780px, 94vw); max-height: 88vh; overflow: auto; background: rgba(10,14,28,.97); border: 2px solid #3b4a78; padding: 16px 20px; }
+.movelist h2 { margin: 0 0 8px; color: var(--amber); letter-spacing: .14em; } .movelist h3 { margin: 12px 0 4px; color: #9aa6c8; letter-spacing: .16em; }
+.movelist table.moves { width: 100%; table-layout: auto; white-space: nowrap; border-collapse: collapse; font-size: 13px; } .movelist th { text-align: left; color: #7f89a8; letter-spacing: .1em; border-bottom: 1px solid #28304a; padding: 3px 6px; }
+.movelist td { padding: 3px 6px; border-bottom: 1px solid #141b30; color: #dfe5f6; }
+.movelist ul.combos { list-style: none; margin: 0; padding: 0; columns: 2; font-size: 13px; } .movelist .combos li { padding: 2px 0; } .movelist .combos span { color: #9aa6c8; }
+.movelist .note { color: #7f89a8; font-size: 12px; margin: 10px 0; }
 .energy.full .fill { background: linear-gradient(90deg, #ffb43a, #fff2b0); animation: pulse .35s infinite alternate; }
 .center { text-align: center; min-width: 96px; }
 .timer { font-size: clamp(34px, 6vw, 62px); line-height: 0.9; text-shadow: 0 3px 10px #000; }
@@ -132,7 +143,16 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); o
 .training .dm small { display: block; color: #7f89a8; font-size: 12px; margin-bottom: 2px; }
 .tbtn2 { font-family: var(--display); letter-spacing: .08em; font-size: 13px; color: var(--text); background: #121a2e; border: 1px solid #3b4a78; padding: 3px 8px; margin: 2px 3px 2px 0; cursor: pointer; }
 .tbtn2.sel { border-color: var(--amber); color: var(--amber); } .tbtn2.danger { border-color: #8d1c34; color: #ff6a86; }
-@media (max-height: 460px) { .training { top: 70px; width: 170px; } .perf { top: 70px; } }
+@media (max-height: 460px) {
+  /* phones in landscape: the training panel moves to the top-left (clear of the touch buttons) and scrolls; the tutorial banner shrinks */
+  .training { left: max(8px, env(safe-area-inset-left)); right: auto; top: 58px; width: 168px; max-height: calc(100vh - 150px); overflow-y: auto; font-size: 12px; padding: 5px 7px; }
+  .training .tt { font-size: 14px; margin-bottom: 2px; } .training .tinfo { font-size: 11px; margin-bottom: 3px; line-height: 1.35; }
+  .training .tbtn2 { font-size: 10px; padding: 2px 5px; margin: 1px 2px 1px 0; } .training .dm small { font-size: 9px; }
+  .training { pointer-events: none; } .training button { pointer-events: auto; }
+  .perf { top: 70px; }
+  .tutorial { top: 52px; left: auto; right: max(8px, env(safe-area-inset-right)); transform: none; width: min(300px, 46vw); padding: 5px 9px; text-align: left; }
+  .tutorial small { display: none; } .tutorial b { font-size: 14px; } .tutorial span { font-size: 11px; line-height: 1.25; } .tutorial i { margin-top: 4px; height: 4px; }
+}
 
 .screen { position: absolute; inset: 0; z-index: 10; display: flex; flex-direction: column; background: radial-gradient(ellipse at center, rgba(11,13,20,.7), rgba(5,6,10,.95)); padding: max(14px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); overflow: hidden; }
 .screen.clear { background: linear-gradient(90deg, rgba(5,6,10,.92), rgba(5,6,10,.05) 40%, rgba(5,6,10,.05) 58%, rgba(5,6,10,.92)); }

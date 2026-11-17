@@ -93,6 +93,9 @@ export interface CharacterStats {
   maxHealth: number;
   walkSpeed: number;
   backSpeed: number;
+  /** Jump height / sidestep speed multipliers (default 1): part of each fighter's movement identity. */
+  jump?: number;
+  dodgeSpeed?: number;
   attacks: Record<string, AttackData>;
 }
 

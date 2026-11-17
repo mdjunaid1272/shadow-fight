@@ -23,6 +23,11 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); o
 .energy { margin-top: 6px; height: 9px; width: 70%; background: #05060b; border: 1px solid #28304a; transform: skewX(-18deg); overflow: hidden; }
 .right .energy { margin-left: auto; }
 .energy .fill { height: 100%; width: 0; background: linear-gradient(90deg, #1a5dff, #6fe0ff); transition: width .12s linear; }
+.guard { margin-top: 3px; height: 5px; width: 55%; background: #05060b; border: 1px solid #28304a; transform: skewX(-18deg); overflow: hidden; }
+.right .guard { margin-left: auto; }
+.guard .fill { height: 100%; width: 0; background: linear-gradient(90deg, #7fd36b, #d6f06a); transition: width .1s linear; }
+.guard.hot .fill { background: linear-gradient(90deg, #ffb43a, #ff5a3a); }
+.guard.broken .fill { background: #ff2a4a; animation: pulse .2s infinite alternate; }
 .energy.full .fill { background: linear-gradient(90deg, #ffb43a, #fff2b0); animation: pulse .35s infinite alternate; }
 .center { text-align: center; min-width: 96px; }
 .timer { font-size: clamp(34px, 6vw, 62px); line-height: 0.9; text-shadow: 0 3px 10px #000; }
@@ -75,6 +80,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); o
 .tbtn.special { right: calc(var(--s) * 2.3); bottom: calc(var(--s) * 1.25); background: rgba(47,139,255,.65); }
 .tbtn.ultimate { right: 0; bottom: calc(var(--s) * 2.25); background: rgba(255,180,58,.7); color: #1a1000; }
 .tbtn.jump { right: calc(var(--s) * 2.3); bottom: calc(var(--s) * .05); background: rgba(70,90,150,.65); }
+.tbtn.grab { right: calc(var(--s) * 2.3); bottom: calc(var(--s) * 2.4); background: rgba(150,80,200,.65); }
+.tbtn.crouch { right: calc(var(--s) * 3.4); bottom: calc(var(--s) * 1.9); background: rgba(90,110,60,.7); }
 .tbtn.dodge { right: calc(var(--s) * 3.4); bottom: calc(var(--s) * .8); background: rgba(40,120,110,.65); }
 .touch-size { position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%); display: flex; gap: 6px; pointer-events: auto; opacity: .55; }
 .touch-size button { width: 34px; height: 28px; background: rgba(18,26,46,.7); color: #fff; border: 1px solid #556; font-size: 16px; border-radius: 6px; }

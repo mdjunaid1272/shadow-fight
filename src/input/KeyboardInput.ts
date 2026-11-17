@@ -1,6 +1,6 @@
 import type { Button, FighterInput } from '../combat/types';
 
-const GAME_KEYS = new Set(['KeyA', 'KeyD', 'KeyW', 'KeyS', 'KeyQ', 'KeyE', 'KeyJ', 'KeyK', 'KeyL', 'KeyU', 'KeyI', 'Space', 'ShiftLeft', 'ShiftRight',
+const GAME_KEYS = new Set(['KeyA', 'KeyD', 'KeyW', 'KeyS', 'KeyC', 'KeyG', 'KeyQ', 'KeyE', 'KeyJ', 'KeyK', 'KeyL', 'KeyU', 'KeyI', 'Space', 'ShiftLeft', 'ShiftRight',
   'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']);
 
 /**
@@ -8,7 +8,7 @@ const GAME_KEYS = new Set(['KeyA', 'KeyD', 'KeyW', 'KeyS', 'KeyQ', 'KeyE', 'KeyJ
  * once per fixed simulation step, so input timing is independent of render FPS.
  *
  *  A/D or ←/→  move (hold back = auto-block)     W/Space/↑ jump     S/↓ step toward camera     Shift step away
- *  J light   K heavy   L kick    Q/E sidestep (toward / away from camera)
+ *  J light   K heavy   L kick    G grab/throw    C crouch (+J launcher, +K sweep, +L low kick)    Q/E sidestep
  */
 export class KeyboardInput {
   private down = new Set<string>();
@@ -32,6 +32,7 @@ export class KeyboardInput {
     if (e.code === 'KeyJ') this.queue.push('light');
     else if (e.code === 'KeyK') this.queue.push('heavy');
     else if (e.code === 'KeyL') this.queue.push('kick');
+    else if (e.code === 'KeyG') this.queue.push('grab');
     else if (e.code === 'KeyU') this.queue.push('special');
     else if (e.code === 'KeyI') this.queue.push('ultimate');
     else if (e.code === 'KeyQ') this.dodgeQueue = 1;
@@ -49,6 +50,7 @@ export class KeyboardInput {
     const inp: FighterInput = {
       fwd: this.enabled ? world * towardSign : 0,
       jump: this.enabled && this.jumpQueued,
+      crouch: this.enabled && this.held('KeyC'),
       block: false, // no block button: holding back blocks automatically (see Fighter.stepNeutral)
       side: this.enabled ? (this.held('KeyS', 'ArrowDown') ? 1 : 0) - (this.held('ShiftLeft', 'ShiftRight') ? 1 : 0) : 0, // depth walk: S/Down toward the camera, Shift away
       pressed: this.enabled ? this.queue : [],

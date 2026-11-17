@@ -1,4 +1,4 @@
-﻿import { buildAttacks } from '../combat/AttackData';
+import { buildAttacks } from '../combat/AttackData';
 import type { CharacterStats } from '../combat/types';
 
 export type WeaponKind = 'katana' | 'daggers' | 'gauntlets' | 'spear';
@@ -34,6 +34,9 @@ export const CHARACTERS: CharacterDef[] = [
       attacks: buildAttacks({ // katana: every slash sweeps an arc, so it hits what the blade visibly passes through
         overrides: {
           light1: { shape: 'swing', arc: 70 }, light2: { shape: 'swing', arc: 80 }, heavy: { shape: 'swing', arc: 120 },
+          light3: { shape: 'swing', arc: 95, damage: 60 },                 // rising finisher of the 3-hit chain
+          sweep: { shape: 'swing', arc: 130 },                             // low blade sweep
+          counter: { shape: 'swing', arc: 100, reach: 1.35, damage: 95 },  // defensive counter slash after a parry
           special: { shape: 'swing', arc: 50 }, ultimate: { shape: 'swing', arc: 170 },
         },
       }),
@@ -50,7 +53,14 @@ export const CHARACTERS: CharacterDef[] = [
       attacks: buildAttacks({
         startupAdd: -1, recoveryAdd: -2, damage: 0.75, reach: 0.88, lunge: 1.1,
         overrides: { // daggers: short, fast, narrow arcs
-          light1: { shape: 'swing', arc: 50 }, light2: { shape: 'swing', arc: 50 },
+          // four-hit flurry: every dagger strike is fast, the chain keeps going
+          light1: { shape: 'swing', arc: 50 },
+          light2: { shape: 'swing', arc: 50, chain: { light: 'light3', kick: 'kick', heavy: 'heavy' } },
+          light3: { shape: 'swing', arc: 55, damage: 34, startup: 5, recovery: 12, chain: { light: 'light4', kick: 'kick' } },
+          light4: { shape: 'swing', arc: 70, damage: 44, startup: 6, recovery: 18, knockback: 0.16 },
+          counter: { shape: 'swing', arc: 70, reach: 1.15, lunge: 1.7, damage: 72, knockdown: false, recovery: 14 }, // evasive counter: slips past and cuts
+          grab: { damage: 80, startup: 8, recovery: 20 },                  // quick, light throw
+          airkick: { damage: 40, recovery: 7 },
           special: { startup: 11, lunge: 3.6, damage: 105, recovery: 22, reach: 1.3 },
           ultimate: { damage: 250, startup: 26, lunge: 3.6, active: 12 },
         },
@@ -68,7 +78,12 @@ export const CHARACTERS: CharacterDef[] = [
       attacks: buildAttacks({
         startupAdd: 2, recoveryAdd: 3, damage: 1.3, reach: 0.95, hitstopAdd: 1,
         overrides: {
-          special: { startup: 22, lunge: 0.9, damage: 190, reach: 1.3, radius: 1.0, recovery: 32 },
+          light2: { chain: { heavy: 'heavy', kick: 'kick' } },             // jab-cross only: no third light, the heavy follows instead
+          heavy: { guardDamage: 48 },                                      // armour-breaking blow: wrecks a guard in two hits
+          counter: { damage: 120, guardDamage: 40, recovery: 20 },         // crushing counter
+          grab: { damage: 150, reach: 1.0, startup: 9, recovery: 28 },     // the strongest throw
+          launcher: { damage: 80, launch: 0.19 },
+          special: { startup: 22, lunge: 0.9, damage: 190, reach: 1.3, radius: 1.0, recovery: 32, guardDamage: 70 },
           ultimate: { damage: 420, startup: 36, lunge: 1.8, reach: 1.5, radius: 1.1 },
         },
       }),
@@ -86,7 +101,11 @@ export const CHARACTERS: CharacterDef[] = [
         reach: 1.32, lunge: 1.2, damage: 1.1,
         overrides: { // spear: forward thrusts are lines, the heavy is a wide sweep
           light1: { shape: 'thrust', reachStart: 0.4 }, light2: { shape: 'thrust', reachStart: 0.4 },
+          light3: { shape: 'thrust', reachStart: 0.4, reach: 1.7, startup: 8, damage: 62 }, // piercing combo: three thrusts, the last one long
           heavy: { shape: 'swing', arc: 140 },
+          sweep: { shape: 'swing', arc: 150, reach: 1.7 },                 // long low sweep
+          counter: { shape: 'thrust', reachStart: 0.5, reach: 1.9, lunge: -0.5, damage: 80 }, // retreating spear strike
+          grab: { damage: 80, reach: 0.8, startup: 11, recovery: 28 },     // weak and slow: Akira wants space
           special: { reach: 2.1, radius: 0.5, lunge: 3.0, damage: 135, shape: 'thrust', reachStart: 0.6 },
           ultimate: { reach: 2.3, radius: 0.8, damage: 300, lunge: 3.2, shape: 'thrust', reachStart: 0.6 },
         },

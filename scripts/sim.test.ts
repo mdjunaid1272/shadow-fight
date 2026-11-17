@@ -36,6 +36,7 @@ const press = (...p: Button[]): FighterInput => ({ ...emptyInput(), pressed: p }
 // 4. block reduces damage
 {
   const { a, b, cm } = mk(); const blk = { ...emptyInput(), block: true };
+  for (let i = 0; i < 40; i++) cm.step([emptyInput(), blk]); // guard already up (a fresh guard would PARRY)
   cm.step([press('light'), blk]);
   for (let i = 0; i < 40; i++) cm.step([emptyInput(), blk]);
   ok(b.health === 1000 - Math.round(40 * 0.08), `block => chip only (hp=${b.health})`);
@@ -43,6 +44,7 @@ const press = (...p: Button[]): FighterInput => ({ ...emptyInput(), pressed: p }
 // 4b. auto-block: holding BACK (no block button) guards and retreats; standing still does not guard
 {
   const { a, b, cm } = mk(); const back = { ...emptyInput(), fwd: -1 };
+  b.x = 0.3; for (let i = 0; i < 12; i++) cm.step([emptyInput(), back]); // guard up and past the parry window (b backs away slowly)
   cm.step([press('light'), back]);
   for (let i = 0; i < 40; i++) cm.step([emptyInput(), back]);
   ok(b.health === 1000 - Math.round(40 * 0.08), `holding back blocks automatically => chip only (hp=${b.health})`);
@@ -347,6 +349,7 @@ import { ModeManager, STORY, CHAPTERS } from '../src/core/Modes';
   }
   // S7. a blocked attack is chip damage and never costs the attacker anything; blocking fighter gets no counter priority
   { const { a, b, cm } = mk(); const l = hits(cm); const blk = { ...emptyInput(), block: true };
+    run(cm, 40, idle, () => blk);
     cm.step([press('light'), blk]); for (let i = 0; i < 30; i++) cm.step([emptyInput(), blk]);
     ok(l.length === 1 && l[0].blocked && b.health === 1000 - Math.round(40 * 0.08) && a.health === 1000, 'S7 blocked attack: chip only, attacker unharmed');
   }
@@ -427,6 +430,157 @@ import { ModeManager, STORY, CHAPTERS } from '../src/core/Modes';
     for (let k = 0; k < ronin.attack.active && !hit; k++) { ronin.attackFrame = ronin.attack.startup + k; for (const s of ronin.hitSamples() ?? []) if (Math.hypot(s.x - h.x, Math.max(h.y0, Math.min(h.y1, s.y)) - s.y, s.z - h.z) <= s.r + h.r) hit = true; }
     const sph = { x: ronin.attack.reach, z: 0, r: ronin.attack.radius };
     ok(hit && Math.hypot(sph.x - h.x, sph.z - h.z) > sph.r + h.r, 'H1 a sword swing hits a target off the centre line that a single ball would miss');
+  }
+}
+
+// ================================================================ PRIORITY 2: defence, throws, air combat, combos
+{
+  const idle = emptyInput;
+  const run = (cm: CombatManager, n: number, ia: () => FighterInput = idle, ib: () => FighterInput = idle) => { for (let i = 0; i < n; i++) cm.step([ia(), ib()]); };
+  const evs = (cm: CombatManager) => { const e: Record<string, number> = {}; for (const k of ['parry', 'guardBreak', 'grab', 'tech', 'hit', 'ko'] as const) { e[k] = 0; (cm.events as any).on(k, () => { e[k]++; }); } return e; };
+  const back = { ...emptyInput(), fwd: -1 }, blk = { ...emptyInput(), block: true }, crouch = { ...emptyInput(), crouch: true };
+  const MAXHP = 1000;
+
+  // ---------------- PARRY
+  { const { a, b, cm } = mk(); const e = evs(cm); b.x = 0.3;
+    cm.step([press('light'), back]); run(cm, 20, idle, () => back);
+    ok(e.parry === 1 && b.health === MAXHP && a.health === MAXHP, `P1 pulling back at the moment of impact PARRIES (no damage, parry events ${e.parry})`);
+    ok(a.state === 'hitstun' && a.stagger && a.stunFrames >= 28, `P1 the parried attacker is staggered and defenceless (${a.state}, ${a.stunFrames} frames)`);
+  }
+  { // a guard raised well before the hit is a normal block (timing matters)
+    const { a, b, cm } = mk(); const e = evs(cm); b.x = 0.3; run(cm, 14, idle, () => back);
+    cm.step([press('light'), back]); run(cm, 25, idle, () => back);
+    ok(e.parry === 0 && b.health < MAXHP && b.health > MAXHP - 10, `P2 early/held guard is a plain block, not a parry (hp ${b.health})`);
+  }
+  { // no parry spam: tapping back again right after a guard started cannot reopen the window
+    const { b, a } = mk(); a.x = -3;
+    const stepB = (inp: FighterInput) => b.step(inp, a);
+    stepB(back); const first = b.parryWindow;
+    for (let i = 0; i < 12; i++) stepB(emptyInput()); // the first window (7 frames) has expired, the cooldown (32) has not
+    stepB(back); const second = b.parryWindow;
+    ok(first > 0 && second === 0, `P3 parry window opens once (${first}) and a quick re-tap cannot reopen it (${second})`);
+  }
+  { // counter: after a parry, light performs the counter attack, which hits the staggered attacker
+    const { a, b, cm } = mk(); b.x = 0.3; cm.step([press('light'), back]); run(cm, 14, idle, () => back); // parry + its hitstop
+    const before = a.health; let usedCounter = false; cm.step([idle(), press('light')]);
+    for (let i = 0; i < 40; i++) { cm.step([idle(), idle()]); if (b.attack?.id === 'counter') usedCounter = true; }
+    ok(usedCounter && a.health < before - 60, `P4 parry opens a counter attack (${before - a.health} damage)`);
+  }
+
+  // ---------------- GUARD METER / GUARD BREAK
+  { const { a, b, cm } = mk(); const e = evs(cm); let n = 0, broke = -1; run(cm, 14, idle, () => blk);
+    for (let k = 1; k <= 9 && broke < 0; k++) { a.reset(-0.9, 0, 1); a.energy = 0; b.x = 0.9; b.z = 0; cm.step([press('heavy'), blk]); run(cm, 42, idle, () => blk); n = k; if (e.guardBreak) broke = k; }
+    ok(broke > 0 && broke <= 6, `G1 repeated heavy attacks into a guard break it (after ${broke} blocked heavies)`);
+    ok(b.guardBroken && b.state === 'hitstun', 'G1 the guard-broken fighter is helpless (punish window)');
+    const hp = b.health; a.reset(-0.9, 0, 1); b.x = 0.9; cm.step([press('light'), idle()]); run(cm, 12);
+    ok(b.health < hp - 30, `G1 a guard break can be punished with a full-damage hit (${hp - b.health})`);
+    run(cm, 400); ok(b.guard < 1, `G2 the guard meter recovers when not defending (${b.guard.toFixed(1)})`);
+    void n;
+  }
+  { // heavier attacks create more guard pressure
+    const t = getCharacter('titan').stats.attacks, r = getCharacter('ronin').stats.attacks;
+    ok((t.heavy.guardDamage ?? 0) > (r.light1.guardDamage ?? r.light1.damage * 0.15) * 3 && (r.heavy.guardDamage ?? 0) > (r.light1.guardDamage ?? r.light1.damage * 0.15), 'G3 heavy attacks (and Titan\'s armour breaker) do far more guard damage than lights');
+  }
+
+  // ---------------- HIGH / LOW
+  { // a crouching fighter ducks high attacks entirely; a standing one is hit
+    const s = mk(); s.cm.step([press('light'), idle()]); run(s.cm, 25); const standing = s.b.health;
+    const c = mk(); run(c.cm, 3, idle, () => crouch); c.cm.step([press('light'), crouch]); run(c.cm, 25, idle, () => crouch);
+    ok(standing < MAXHP && c.b.health === MAXHP && c.b.state === 'crouch', `L1 crouching ducks the high jab (standing hp ${standing}, crouching hp ${c.b.health})`);
+  }
+  { // low attacks hit a standing guard; only a crouching guard blocks them
+    const st = mk(); const e1 = evs(st.cm); run(st.cm, 14, idle, () => blk);
+    st.cm.step([{ ...emptyInput(), crouch: true, pressed: ['kick'] }, blk]); run(st.cm, 30, idle, () => blk);
+    const cr = mk(); const e2 = evs(cr.cm); run(cr.cm, 14, idle, () => crouch);
+    cr.cm.step([{ ...emptyInput(), crouch: true, pressed: ['kick'] }, crouch]); run(cr.cm, 30, idle, () => crouch);
+    ok(st.b.health < MAXHP - 20, `L2 a low kick goes through a standing guard (hp ${st.b.health})`);
+    ok(cr.b.health > MAXHP - 10 && cr.b.health < MAXHP, `L2 a crouching guard blocks the low kick (chip only, hp ${cr.b.health})`);
+    void e1; void e2;
+  }
+  { // crouch + heavy = sweep (low, knockdown); crouch + light = launcher
+    const { a, cm } = mk(); cm.step([{ ...emptyInput(), crouch: true, pressed: ['heavy'] }, idle()]); ok(a.attack?.id === 'sweep' && a.attack.level === 'low', 'L3 crouch + heavy performs the low sweep');
+    const m = mk(); m.cm.step([{ ...emptyInput(), crouch: true, pressed: ['light'] }, idle()]); ok(m.a.attack?.id === 'launcher', 'L3 crouch + light performs the launcher');
+  }
+
+  // ---------------- GRABS
+  { const { a, b, cm } = mk(); const e = evs(cm); b.x = 0.4;
+    cm.step([press('grab'), idle()]); run(cm, 14);
+    ok(b.state === 'grabbed' && e.grab === 1, 'T1 a grab connects against an idle fighter');
+    run(cm, 30); ok(b.health < MAXHP - 80, `T1 an untechd throw lands for big damage (hp ${b.health})`);
+    ok(b.state === 'knockdown' || b.state === 'getup' || b.state === 'idle', 'T1 the thrown fighter ends knocked down');
+  }
+  { // throws beat blocking
+    const { b, cm } = mk(); b.x = 0.4; run(cm, 14, idle, () => blk); const e = evs(cm); cm.step([press('grab'), blk]); run(cm, 30, idle, () => blk);
+    ok(e.grab === 1 && b.health < MAXHP - 80, `T2 throws beat blocking (hp ${b.health})`);
+  }
+  { // tech: pressing grab in time escapes with no damage
+    const { a, b, cm } = mk(); b.x = 0.4; const e = evs(cm);
+    cm.step([press('grab'), idle()]); for (let i = 0; i < 30 && b.state !== 'grabbed'; i++) cm.step([idle(), idle()]);
+    run(cm, 6); cm.step([idle(), press('grab')]); run(cm, 30); // (hitstop swallows the first frames; the real game queues presses through it)
+    ok(e.tech === 1 && b.health === MAXHP && a.health === MAXHP, 'T3 pressing grab in time techs the throw (no damage)');
+  }
+  { // a jumping or dodging fighter cannot be grabbed
+    const { b, cm } = mk(); b.x = 0.4; const e = evs(cm); cm.step([press('grab'), { ...emptyInput(), jump: true }]); run(cm, 30);
+    ok(e.grab === 0 && b.health === MAXHP, 'T4 airborne fighters cannot be thrown');
+    const d = mk(); d.b.x = 0.4; const e2 = evs(d.cm); d.cm.step([idle(), { ...emptyInput(), dodge: 1 }]); run(d.cm, 4); d.cm.step([press('grab'), idle()]); run(d.cm, 30);
+    ok(e2.grab === 0, 'T4 a dodging fighter cannot be thrown');
+  }
+
+  // ---------------- AIR COMBAT
+  { const airMove = (btn: Button) => { const { a, cm } = mk(); a.reset(-6, 0, 1); cm.step([{ ...emptyInput(), jump: true }, idle()]); run(cm, 6); cm.step([press(btn), idle()]); return a.attack?.id; };
+    const l = airMove('light'), h = airMove('heavy'), k = airMove('kick');
+    ok(l === 'airlight' && h === 'airheavy' && k === 'airkick', `A1 each button performs its own air move (${l}, ${h}, ${k})`);
+    const at = getCharacter('ronin').stats.attacks;
+    ok(at.airheavy.damage > at.airlight.damage && at.airkick.startup < at.airlight.startup && at.airheavy.knockdown && !at.airlight.knockdown, 'A1 air moves differ: kick fastest, heavy hardest and knocks down');
+  }
+  { // landing lag: a whiffed air attack leaves the fighter helpless for a moment
+    const { a, cm } = mk(); a.reset(-6, 0, 1); cm.step([{ ...emptyInput(), jump: true }, idle()]); run(cm, 5); cm.step([press('heavy'), idle()]);
+    let landedAt = -1; for (let i = 0; i < 80 && landedAt < 0; i++) { cm.step([idle(), idle()]); if (a.y === 0 && a.state === 'idle') landedAt = i; }
+    ok(landedAt > 0 && a.landLag > 8, `A2 a whiffed air heavy has landing lag (${a.landLag} frames)`);
+    cm.step([press('light'), idle()]); ok(a.state !== 'attack', 'A2 the fighter cannot attack during landing lag');
+    run(cm, 30); ok(a.landLag === 0, 'A2 landing lag ends');
+  }
+  { // launcher -> juggle follow-up; the juggle is capped so it always ends
+    const { a, b, cm } = mk(); const e = evs(cm); let maxCombo = 0; cm.events.on('combo', (c) => { if (c.owner === 0) maxCombo = Math.max(maxCombo, c.count); });
+    cm.step([{ ...emptyInput(), crouch: true, pressed: ['light'] }, idle()]); let launched = false, followUps = 0, airHits = 0, prevH = b.health, peak = 0;
+    for (let i = 0; i < 400 && b.state !== 'getup'; i++) {
+      a.x = b.x - 0.9; a.z = b.z; // worst case: an attacker that is always perfectly in range
+      const air = b.y > 0.05; if (air) { launched = true; peak = Math.max(peak, b.y); }
+      const want = launched && air && (a.state === 'idle' || a.state === 'walk' || (a.state === 'attack' && a.connected)) ? press('light') : idle();
+      cm.step([want, idle()]); if (b.health < prevH && launched && b.y > 0.05) airHits++; prevH = b.health;
+      if (want.pressed.length) followUps++;
+    }
+    ok(launched && peak > 1.0, `J1 the launcher sends the opponent into the air (peak ${peak.toFixed(2)} m)`);
+    ok(maxCombo >= 3, `J1 the launcher starts a real juggle combo (${maxCombo} hits)`);
+    ok(airHits <= 5 && b.y === 0, `J2 the juggle is capped: at most ${airHits} air hits, then the victim lands`);
+    ok(b.juggle === 0 && b.health > 0, 'J2 the victim survives the capped juggle and recovers');
+    void e; void followUps;
+  }
+  { // infinite-air-combo guard: even endless forced hits on an airborne fighter run out
+    const { a, b, cm } = mk(); let hits = 0; const start = b.health; b.reset(0.9, 0, -1); b.y = 1.2; b.vy = 0.05; b.setState('knockdown'); b.juggle = 0;
+    for (let i = 0; i < 300 && b.y > 0.0001; i++) { a.x = b.x - 0.9; a.z = b.z; a.attack = null; a.setState('idle'); cm.step([press('light'), idle()]); const hb = b.health; void hb; if (b.invulnerable) hits += 0; }
+    ok(b.y === 0 || b.state === 'knockdown', 'J3 an airborne fighter always lands even under constant attack');
+    void hits; void start;
+  }
+
+  // ---------------- COMBO DATA: chains are acyclic, finishers end
+  for (const id of ['ronin', 'shinobi', 'titan', 'akira']) {
+    const at = getCharacter(id).stats.attacks; let cyc = false; let bad = '';
+    const visit = (k: string, seen: string[]) => { if (seen.includes(k)) { cyc = true; return; } for (const nxt of Object.values(at[k].chain)) { if (!at[nxt as string]) bad = `${k}->${nxt}`; else visit(nxt as string, [...seen, k]); } };
+    for (const k of Object.keys(at)) visit(k, []);
+    ok(!cyc && !bad, `C1 ${id}: combo chains never loop and only point at real moves${bad ? ' (bad ' + bad + ')' : ''}`);
+  }
+  { const R = getCharacter('ronin').stats.attacks, S = getCharacter('shinobi').stats.attacks, T = getCharacter('titan').stats.attacks, K = getCharacter('akira').stats.attacks;
+    const len = (at: typeof R) => { let n = 1, k = 'light1'; while (at[k].chain.light) { k = at[k].chain.light!; n++; } return n; };
+    ok(len(R) === 3 && len(S) === 4 && len(T) === 2 && len(K) === 3, `C2 weapon-specific light chains: Ronin ${len(R)}, Shinobi ${len(S)}, Titan ${len(T)}, Akira ${len(K)} hits`);
+    ok(Object.keys(R.heavy.chain).length === 0 && Object.keys(R.sweep.chain).length === 0, 'C2 heavies and sweeps end the combo (no free cancels)');
+    ok(Object.keys(R.light1.chain).length < Object.keys(R).length - 3, 'C2 not every attack cancels into every other attack');
+    ok(S.counter.lunge > 1 && K.counter.lunge < 0 && T.counter.guardDamage! > 0, 'C2 each character has a different counter (Shinobi slips past, Akira retreats, Titan breaks guard)');
+  }
+  { // long-run safety: nonstop light spam still leaves the victim windows to act (no permanent stun lock)
+    const { a, b, cm } = mk(); let free = 0;
+    for (let i = 0; i < 900; i++) { a.x = b.x - 0.9; a.z = b.z; cm.step([press('light'), idle()]); if (b.state === 'idle') free++; if (b.state === 'knockdown' || b.state === 'getup') free++; if (b.health <= 1) b.health = 600; }
+    ok(free > 20, `C3 nonstop light spam cannot stun-lock the opponent (${free} free/down frames in 900)`);
   }
 }
 

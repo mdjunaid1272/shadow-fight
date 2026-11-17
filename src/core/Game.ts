@@ -317,12 +317,12 @@ export class Game {
         else if (h.damage >= 90) { this.slowMo(0.55, 0.18); this.cam.zoomPulse(-0.06, 0.2, 0.07, 0.4); }
       }
       if (h.blocked) this.audio.play('block');
-      else if (h.attackId === 'kick') this.audio.play('impact_kick');
+      else if (['kick', 'lowkick', 'airkick', 'sweep'].includes(h.attackId)) this.audio.play('impact_kick');
       else this.audio.play(this.defs[h.attacker].weapon === 'gauntlets' ? 'impact_punch' : 'impact_sword', { rate: h.knockdown ? 0.8 : 1 });
       if (this.opts?.practice && h.attacker === 0 && !h.blocked) { this.trainingCombo.damage += h.damage; this.trainingCombo.hits++; this.updateTrainingInfo(); }
     });
     ev.on('attackStart', ({ id, startup }) => {
-      const heavy = id === 'heavy' || id === 'special' || id === 'ultimate';
+      const heavy = ['heavy', 'special', 'ultimate', 'sweep', 'airheavy', 'counter', 'launcher'].includes(id);
       if (id === 'special' || id === 'ultimate') return; // dedicated sound on the 'special' event
       setTimeout(() => this.audio.play(heavy ? 'swing_heavy' : 'swing_light'), (startup * 0.55 / 60) * 1000);
     });
@@ -343,6 +343,22 @@ export class Game {
     });
     ev.on('ko', ({ loser }) => { const lf = this.fighters[loser]; this.fx.burst(lf.x, lf.y + 1, lf.z, 0xffffff, true); this.audio.play('ko'); if (this.cinematics) { this.cam.cinematic(this.fighters[loser], 1.1, 0.75, { low: 0.5 }); this.slowMo(0.3, 1.1); this.hud.letterbox(2.2); this.cam.zoomPulse(-0.1, 1.1, 0.6, 1.2); } });
     ev.on('perfectDodge', ({ who }) => { const df = this.fighters[who]; this.fx.perfectDodge(df.x, df.y + 1, df.z); if (this.cinematics) { this.slowMo(0.55, 0.3); this.cam.zoomPulse(-0.06, 0.3, 0.1, 0.4); } if (who === 0) { this.counters.perfectDodges++; this.hud.showBanner('PERFECT DODGE', '', 0.6); } });
+    // ---- defensive events: parry (timed block), guard break, throws
+    ev.on('parry', ({ who, x, y, z }) => {
+      const pf = this.fighters[who];
+      this.fx.burst(x, y, z, 0xffffff, false); this.fx.perfectDodge(pf.x, pf.y + 1, pf.z);
+      this.audio.play('block', { rate: 1.8 }); this.cam.addShake(0.1);
+      if (this.cinematics) { this.slowMo(0.5, 0.25); this.cam.zoomPulse(-0.05, 0.25, 0.08, 0.4); }
+      if (who === 0) this.hud.showBanner('PARRY', '', 0.6);
+    });
+    ev.on('guardBreak', ({ who }) => {
+      const f = this.fighters[who];
+      this.fx.burst(f.x, f.y + 1.1, f.z, 0xffb43a, true); this.audio.play('impact_punch', { rate: 0.7 }); this.cam.addShake(0.28);
+      if (this.cinematics) this.slowMo(0.45, 0.3);
+      this.hud.showBanner(who === 0 ? 'GUARD BROKEN' : 'GUARD BREAK', '', 0.8);
+    });
+    ev.on('grab', ({ attacker }) => { const f = this.fighters[attacker]; this.audio.play('impact_kick', { rate: 0.8 }); this.fx.dust(f.x, f.z, 5, 0.2, 0.8); });
+    ev.on('tech', ({ who }) => { this.audio.play('dodge'); if (who === 0) this.hud.showBanner('TECH', '', 0.5); });
     ev.on('combo', ({ owner, count }) => { if (count >= 4 && count % 4 === 0 && this.cinematics) { this.slowMo(0.5, 0.22); this.cam.zoomPulse(-0.05, 0.25, 0.08, 0.4); } /* combo milestone */ if (owner === 0) { this.hud.showCombo(count); if (this.opts?.practice) { this.trainingCombo.last = count; this.trainingCombo.best = Math.max(this.trainingCombo.best, count); this.updateTrainingInfo(); } } });
     ev.on('comboEnd', ({ owner }) => { if (owner === 0) { setTimeout(() => this.hud.hideCombo(), 600); if (this.opts?.practice) { this.trainingCombo.hits = 0; this.trainingCombo.damage = 0; } } });
 
@@ -505,6 +521,7 @@ export class Game {
     const practice = !!this.opts?.practice && this.match.phase !== 'menu';
     this.hud.setHealth(0, practice ? 1 : p.health / p.stats.maxHealth); this.hud.setHealth(1, practice ? 1 : e.health / e.stats.maxHealth);
     this.hud.setEnergy(0, p.energy); this.hud.setEnergy(1, e.energy);
+    this.hud.setGuard(0, p.guard, p.guardBroken); this.hud.setGuard(1, e.guard, e.guardBroken);
     this.hud.setTimer(this.match.timerSeconds, practice);
     this.hud.tick(rawDt);
     this.adaptResolution(rawDt);

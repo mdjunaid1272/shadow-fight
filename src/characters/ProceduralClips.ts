@@ -51,10 +51,33 @@ const SHARED: Record<string, Atk> = {
     wind: { rootY: 0.02, torso: V(10, -35, 0), shR: V(-120, 0, -50), elR: V(-50, 0, 0), shL: V(-60, 0, 25), hpR: V(-55, 0, 4), knR: V(75, 0, 0), hpL: V(-25, 0, -4), knL: V(55, 0, 0) },
     strike: { rootY: 0.02, rootZ: 0.1, torso: V(24, 45, 0), hips: V(10, 20, 0), shR: V(-95, 0, 40), elR: V(-8, 0, 0), shL: V(-40, 0, 25), hpR: V(-60, 0, 4), knR: V(70, 0, 0), hpL: V(-30, 0, -4), knL: V(60, 0, 0) },
   },
+  LOWKICK: { // crouched low poke
+    wind: { rootY: -0.3, torso: V(20, 10, 0), hips: V(10, 10, 0), hpR: V(-30, 0, 4), knR: V(90, 0, 0), hpL: V(30, 0, -4), knL: V(90, 0, 0) },
+    strike: { rootY: -0.36, rootZ: 0.15, torso: V(26, 20, 0), hips: V(14, 14, 0), hpR: V(-85, 0, 4), knR: V(10, 0, 0), hpL: V(40, 0, -4), knL: V(95, 0, 0) },
+  },
+  SWEEP: { // spinning low sweep
+    wind: { rootY: -0.3, torso: V(24, -40, 0), hips: V(12, -20, 0), hpR: V(-20, 0, 4), knR: V(100, 0, 0), hpL: V(30, 0, -4), knL: V(95, 0, 0), shR: V(-60, 0, -40), shL: V(-60, 0, 40) },
+    strike: { rootY: -0.4, rootZ: 0.2, torso: V(30, 60, 0), hips: V(18, 40, 0), hpR: V(-70, 0, 4), knR: V(5, 0, 0), hpL: V(40, 0, -4), knL: V(100, 0, 0), shR: V(-30, 0, -60), shL: V(-30, 0, 60) },
+  },
+  LAUNCHER: { // rising uppercut-style strike
+    wind: { rootY: -0.22, torso: V(26, -20, 0), hips: V(14, -8, 0), shR: V(20, 0, -20), elR: V(-80, 0, 0), hpR: V(-30, 0, 4), knR: V(70, 0, 0), hpL: V(26, 0, -4), knL: V(70, 0, 0) },
+    strike: { rootY: 0.02, rootZ: 0.2, torso: V(-12, 20, 0), hips: V(-4, 12, 0), shR: V(-170, 0, -10), elR: V(-6, 0, 0), shL: V(-40, 0, 20), hpR: V(-20, 0, 4), knR: V(20, 0, 0), hpL: V(10, 0, -4), knL: V(20, 0, 0) },
+  },
+  AIRHEAVY: { // diving overhead
+    wind: { rootY: 0.04, torso: V(-10, 0, 0), shR: V(-138, 0, -10), elR: V(-40, 0, 0), shL: V(-134, 0, 10), elL: V(-40, 0, 0), hpR: V(-40, 0, 4), knR: V(60, 0, 0), hpL: V(-22, 0, -4), knL: V(46, 0, 0) },
+    strike: { rootY: 0.02, rootZ: 0.12, torso: V(50, 0, 0), hips: V(20, 0, 0), shR: V(-50, 0, -6), elR: V(-4, 0, 0), shL: V(-50, 0, 6), elL: V(-4, 0, 0), hpR: V(-70, 0, 4), knR: V(50, 0, 0), hpL: V(-30, 0, -4), knL: V(40, 0, 0) },
+  },
+  AIRKICK: { // flying kick
+    wind: { rootY: 0.03, torso: V(-4, 0, 0), hpR: V(-40, 0, 4), knR: V(56, 0, 0), hpL: V(-24, 0, -4), knL: V(40, 0, 0), shR: V(-66, 0, -16), shL: V(-66, 0, 16) },
+    strike: { rootY: 0.03, rootZ: 0.14, torso: V(-18, 0, 0), hpR: V(-92, 0, 4), knR: V(10, 0, 0), hpL: V(-20, 0, -4), knL: V(46, 0, 0), shR: V(-60, 0, -26), shL: V(-60, 0, 26) },
+  },
+  GRAB: { // both hands reach for the opponent
+    wind: { rootY: -0.1, torso: V(10, 0, 0), shR: V(-70, 0, -20), elR: V(-60, 0, 0), shL: V(-70, 0, 20), elL: V(-60, 0, 0) },
+    strike: { rootY: -0.12, rootZ: 0.22, torso: V(24, 0, 0), hips: V(10, 0, 0), shR: V(-100, 0, -14), elR: V(-6, 0, 0), shL: V(-100, 0, 14), elL: V(-6, 0, 0), hpR: V(-40, 0, 4), knR: V(40, 0, 0), hpL: V(26, 0, -4) },
+  },
 };
 
-const ATTACKS: Record<WeaponKind, Record<string, Atk>> = {
-  katana: {
+const ATTACKS: Record<WeaponKind, Record<string, Atk>> = {  katana: {
     LIGHT1: {
       wind: { torso: V(8, -38, 0), hips: V(6, -12, 0), shR: V(-85, 0, -62), elR: V(-60, 0, 0), shL: V(-40, 0, 25) },
       strike: { rootZ: 0.14, torso: V(14, 48, 0), hips: V(6, 38, 0), shR: V(-95, 0, 38), elR: V(-15, 0, 0), shL: V(-30, 0, 20), hpR: V(-36, 0, 4), knR: V(36, 0, 0), hpL: V(20, 0, -4), knL: V(15, 0, 0) },
@@ -233,6 +256,12 @@ export function registerClips(ctrl: AnimationController, def: CharacterDef): voi
     shR: V(-96, 0, -20), shL: V(-92, 0, 25), torso: V(10, GUARDS[kind].torso![1], 0),
   }), 0.08);
 
+  ctrl.register('CROUCH', ({ time }) => P({ // low guard: knees deeply bent, hands up, head tucked
+    rootY: -0.4 + Math.sin(time * 2.4) * 0.008, torso: V(26, 18, 0), hips: V(20, 14, 0), head: V(-18, -20, 0),
+    shR: V(-100, 0, -24), elR: V(-112, 0, 0), shL: V(-100, 0, 24), elL: V(-112, 0, 0),
+    hpR: V(-62, 0, 8), knR: V(112, 0, 0), hpL: V(-38, 0, -8), knL: V(104, 0, 0),
+  }), 0.08);
+
   ctrl.register('BLOCK', ({ frame }) => {
     const rec = Math.exp(-frame / 5); // recoil right after impact
     return P({
@@ -284,8 +313,9 @@ export function registerClips(ctrl: AnimationController, def: CharacterDef): voi
   // ---- attacks: timeline built from frame data
   for (const a of Object.values(def.stats.attacks)) {
     if (ctrl.has(a.clip)) continue;
-    const pair = ATTACKS[kind][a.clip] ?? SHARED[a.clip];
-    if (!pair) { console.warn(`[Animation] no key poses for ${kind}/${a.clip}`); continue; }
+    const key = a.poseSet ?? a.clip; // a move may reuse another move's key poses but keeps its own timing
+    const pair = ATTACKS[kind][key] ?? SHARED[key];
+    if (!pair) { console.warn(`[Animation] no key poses for ${kind}/${key}`); continue; }
     const wind = P(pair.wind), strike = P(pair.strike);
     const antic = mixPose(G, wind, -0.16);          // small counter-move before the wind-up
     const over = mixPose(wind, strike, 1.14);        // overshoot for follow-through

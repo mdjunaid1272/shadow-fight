@@ -1,5 +1,5 @@
 import { Emitter } from '../core/Events';
-import { BODY_RADIUS, Fighter } from './Fighter';
+import { BODY_RADIUS, Fighter, GUARD_MAX, TECH_FRAMES } from './Fighter';
 import type { AttackData, FighterInput, HitSample } from './types';
 
 export interface CombatEvents {
@@ -7,6 +7,12 @@ export interface CombatEvents {
   combo: { owner: number; count: number };
   comboEnd: { owner: number; count: number };
   ko: { loser: number };
+  /** who parried ttacker's hit. */
+  parry: { who: number; attacker: number; x: number; y: number; z: number };
+  guardBreak: { who: number };
+  grab: { attacker: number; defender: number };
+  /** who escaped a throw. */
+  tech: { who: number };
   perfectDodge: { who: number };
   attackStart: { who: number; id: string; startup: number };
   state: { who: number; from: string; to: string };
@@ -16,8 +22,8 @@ export interface CombatEvents {
 
 /** What one attacker's active hitbox does to the opponent this frame (computed from a snapshot, applied afterwards). */
 interface Resolution {
-  kind: 'hit' | 'block' | 'dodged';
-  ai: number; data: AttackData; dx: number; dz: number; cx: number; cy: number; cz: number;
+  kind: 'hit' | 'block' | 'dodged' | 'parry' | 'grab';
+  ai: number; data: AttackData; dx: number; dz: number; cx: number; cy: number; cz: number; crouched: boolean;
   damage: number; hitstop: number; count: number;
 }
 
@@ -65,6 +71,7 @@ export class CombatManager {
     });
     if (this.active) {
       this.resolveAll();
+      this.resolveGrabs();
     }
     this.separate();
     this.updateCombos();
@@ -84,7 +91,7 @@ export class CombatManager {
       const def = this.fighters[1 - r.ai];
       if (def.health <= 0) this.events.emit('ko', { loser: 1 - r.ai });
     }
-    for (const r of results) if (r.kind === 'hit' || r.kind === 'block') this.hitstop = Math.max(this.hitstop, r.hitstop);
+    for (const r of results) this.hitstop = Math.max(this.hitstop, r.hitstop);
   }
 
   /** Read-only: decides what attacker `ai` does to the opponent this frame. Does not mutate either fighter. */
@@ -93,7 +100,7 @@ export class CombatManager {
     const samples = att.hitSamples();
     const data = att.attack;
     if (!samples || !data || att.hitDone) return null;
-    if (def.state === 'victory' || def.state === 'defeat') return null;
+    if (def.state === 'victory' || def.state === 'defeat' || def.state === 'grabbed') return null;
 
     const h = def.hurtbox();
     let contact: HitSample | null = null;
@@ -106,14 +113,34 @@ export class CombatManager {
     let dx = def.x - att.x, dz = def.z - att.z;
     const len = Math.hypot(dx, dz) || 1; dx /= len; dz /= len;
     const cx = (contact.x + h.x) / 2, cy = contact.y, cz = (contact.z + h.z) / 2;
-    if (def.invulnerable) return { kind: 'dodged', ai, data, dx, dz, cx, cy, cz, damage: 0, hitstop: 0, count: 0 };
+    const base = { ai, data, dx, dz, cx, cy, cz, crouched: false };
+    if (def.invulnerable) return { ...base, kind: 'dodged', damage: 0, hitstop: 0, count: 0 };
 
-    const blocking = (def.state === 'block' || def.state === 'blockstun') && def.fx * -dx + def.fz * -dz > 0.2;
-    if (blocking) return { kind: 'block', ai, data, dx, dz, cx, cy, cz, damage: Math.round(data.damage * CHIP_RATIO), hitstop: 2, count: 0 };
+    // ---- throws: beat standing/guarding fighters, miss anyone airborne, dodging or already attacking with active frames
+    if (data.grab) {
+      const grabbable = def.grounded && ['idle', 'walk', 'block', 'crouch', 'blockstun'].includes(def.state) || (def.state === 'attack' && def.attackPhase !== 'active' && def.grounded);
+      return grabbable ? { ...base, kind: 'grab', damage: data.damage, hitstop: 4, count: 0 } : null;
+    }
+    // ---- height: a crouching fighter ducks HIGH attacks completely
+    const level = data.level ?? 'mid';
+    if (def.state === 'crouch' && level === 'high') return null;
 
+    const frontal = def.fx * -dx + def.fz * -dz > 0.2;
+    const crouchGuard = def.state === 'crouch' || (def.state === 'blockstun' && def.blockCrouched);
+    const guarding = (def.state === 'block' || def.state === 'blockstun' || def.state === 'crouch') && frontal;
+    // standing guard cannot stop LOW attacks; crouching guard stops low and mid
+    if (guarding && !(level === 'low' && !crouchGuard)) {
+      // a fresh guard (pulled back within the parry window) reflects the attack
+      if (def.state === 'block' && def.parryWindow > 0) return { ...base, kind: 'parry', damage: 0, hitstop: 7, count: 0 };
+      const chip = Math.round(data.damage * CHIP_RATIO);
+      const wouldBreak = def.guard + (data.guardDamage ?? data.damage * 0.15) >= GUARD_MAX;
+      return { ...base, kind: 'block', crouched: crouchGuard, damage: chip, hitstop: wouldBreak ? 10 : 2, count: 0 };
+    }
+
+    const airborne = def.y > 0.05;
     const count = def.inCombo ? this.combo[ai] + 1 : 1;
-    const scale = Math.max(MAX_COMBO_SCALING_FLOOR, 1 - 0.1 * (count - 1));
-    return { kind: 'hit', ai, data, dx, dz, cx, cy, cz, damage: Math.round(data.damage * scale), hitstop: data.hitstop, count };
+    const scale = Math.max(MAX_COMBO_SCALING_FLOOR, 1 - 0.1 * (count - 1)) * (airborne ? Math.pow(0.85, def.juggle + 1) : 1);
+    return { ...base, kind: 'hit', damage: Math.max(1, Math.round(data.damage * scale)), hitstop: data.hitstop, count };
   }
 
   private apply(r: Resolution): void {
@@ -124,12 +151,25 @@ export class CombatManager {
       if (def.state === 'dodge') { def.addEnergy(12); this.events.emit('perfectDodge', { who: 1 - ai }); }
       return;
     }
+    if (r.kind === 'parry') {
+      att.takeParried(-r.dx, -r.dz);
+      def.parrySuccess(); def.addEnergy(10);
+      this.events.emit('parry', { who: 1 - ai, attacker: ai, x: r.cx, y: r.cy, z: r.cz });
+      return;
+    }
+    if (r.kind === 'grab') {
+      def.getGrabbed(att, data); att.connected = true;
+      this.events.emit('grab', { attacker: ai, defender: 1 - ai });
+      return;
+    }
     if (r.kind === 'block') {
-      def.takeBlock(data, r.damage, r.dx, r.dz);
+      const broke = def.takeBlock(data, r.damage, r.dx, r.dz);
+      def.blockCrouched = r.crouched;
       att.connected = true;
       att.addEnergy(data.energyGain * 0.4); def.addEnergy(3);
       this.damageDealt[ai] += r.damage;
-      this.events.emit('hit', { attackId: data.id, attacker: ai, defender: 1 - ai, damage: r.damage, x: r.cx, y: r.cy, z: r.cz, blocked: true, knockdown: false, hitstop: 2 });
+      this.events.emit('hit', { attackId: data.id, attacker: ai, defender: 1 - ai, damage: r.damage, x: r.cx, y: r.cy, z: r.cz, blocked: true, knockdown: false, hitstop: r.hitstop });
+      if (broke) this.events.emit('guardBreak', { who: 1 - ai });
       return;
     }
     const dealt = Math.min(r.damage, def.health), wasHealth = def.health;
@@ -139,8 +179,34 @@ export class CombatManager {
     this.damageDealt[ai] += wasHealth - def.health;
     this.combo[ai] = r.count;
     this.maxCombo[ai] = Math.max(this.maxCombo[ai], r.count);
-    this.events.emit('hit', { attackId: data.id, attacker: ai, defender: 1 - ai, damage: dealt, x: r.cx, y: r.cy, z: r.cz, blocked: false, knockdown: data.knockdown || def.health <= 0, hitstop: data.hitstop });
+    this.events.emit('hit', { attackId: data.id, attacker: ai, defender: 1 - ai, damage: dealt, x: r.cx, y: r.cy, z: r.cz, blocked: false, knockdown: data.knockdown || !!data.launch || def.health <= 0, hitstop: data.hitstop });
     if (r.count > 1) this.events.emit('combo', { owner: ai, count: r.count });
+  }
+
+  /** Throws in progress: the victim may tech (grab pressed in time) - otherwise the throw lands after TECH_FRAMES. */
+  private resolveGrabs(): void {
+    for (let who = 0; who < 2; who++) {
+      const v = this.fighters[who], att = v.grabbedBy;
+      if (v.state !== 'grabbed' || !att || !v.grabData) continue;
+      const ai = 1 - who;
+      let dx = v.x - att.x, dz = v.z - att.z; const len = Math.hypot(dx, dz) || 1; dx /= len; dz /= len;
+      if (v.teched) { // escape: both shoved apart, nobody is hurt
+        v.releaseGrab(); v.shove(dx, dz, 0.1); att.shove(-dx, -dz, 0.1);
+        v.setState('blockstun'); v.stunFrames = 12; att.attack = null; att.setState('blockstun'); att.stunFrames = 12;
+        this.events.emit('tech', { who });
+        this.hitstop = Math.max(this.hitstop, 4);
+      } else if (v.stateFrame >= TECH_FRAMES) {
+        const data = v.grabData, wasHealth = v.health;
+        v.releaseGrab();
+        v.takeHit(data, data.damage, dx, dz);
+        this.damageDealt[ai] += wasHealth - v.health;
+        this.combo[ai] = 1; this.maxCombo[ai] = Math.max(this.maxCombo[ai], 1);
+        att.addEnergy(data.energyGain);
+        this.events.emit('hit', { attackId: data.id, attacker: ai, defender: who, damage: wasHealth - v.health, x: (att.x + v.x) / 2, y: 1, z: (att.z + v.z) / 2, blocked: false, knockdown: true, hitstop: 8 });
+        this.hitstop = Math.max(this.hitstop, 8);
+        if (v.health <= 0) this.events.emit('ko', { loser: who });
+      }
+    }
   }
   private separate(): void {
     const [a, b] = this.fighters;

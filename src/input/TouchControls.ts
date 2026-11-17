@@ -1,14 +1,17 @@
 import type { Button, FighterInput } from '../combat/types';
 import type { InputSource } from './InputSource';
 
-type Action = Button | 'jump' | 'dodge';
+type Action = Button | 'jump' | 'dodge' | 'crouch';
 interface BtnDef { action: Action; label: string; cls: string }
 
 const BUTTONS: BtnDef[] = [
   { action: 'light', label: 'LIGHT', cls: 'light' },
   { action: 'heavy', label: 'HEAVY', cls: 'heavy' },
   { action: 'kick', label: 'KICK', cls: 'kick' },
+  { action: 'jump', label: 'JUMP', cls: 'jump' },
   { action: 'dodge', label: 'DODGE', cls: 'dodge' },
+  { action: 'grab', label: 'GRAB', cls: 'grab' },
+  { action: 'crouch', label: 'DUCK', cls: 'crouch' },
   { action: 'special', label: 'SPECIAL', cls: 'special' },
   { action: 'ultimate', label: 'ULT', cls: 'ultimate' },
 ];
@@ -109,7 +112,8 @@ export class TouchControls implements InputSource {
     el.setPointerCapture(e.pointerId);
     this.owners.set(e.pointerId, action);
     el.classList.add('down');
-    if (action === 'jump') { if (this.enabled) this.jumpQueued = true; }
+    if (action === 'crouch') this.held.add('crouch');
+    else if (action === 'jump') { if (this.enabled) this.jumpQueued = true; }
     else if (action === 'dodge') this.dodgeQueued = true;
     else if (this.enabled) this.queue.push(action);
   }
@@ -118,6 +122,7 @@ export class TouchControls implements InputSource {
     if (!a) return;
     this.owners.delete(e.pointerId);
     el.classList.remove('down');
+    if (a === 'crouch') this.held.delete('crouch');
   }
 
   poll(towardSign: number): FighterInput {
@@ -128,6 +133,7 @@ export class TouchControls implements InputSource {
       fwd: this.enabled ? sx * towardSign : 0,
       jump: this.enabled && this.jumpQueued,
       block: false,
+      crouch: this.enabled && this.held.has('crouch'),
       pressed: this.enabled ? this.queue : [],
       dodge: this.enabled && this.dodgeQueued ? (up ? -1 : 1) : 0,
       side: this.enabled ? sy : 0,

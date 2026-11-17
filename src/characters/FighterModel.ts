@@ -185,10 +185,12 @@ export class FighterModel {
       case 'walk': return f.running ? 'RUN' : 'WALK'; // direction decided by caller via backward flag
       case 'jump': return f.vy < 0 ? 'FALL' : 'JUMP';
       case 'block': return 'BLOCK';
+      case 'crouch': return 'CROUCH';
+      case 'grabbed': return 'HIT_HEAVY';
       case 'blockstun': return f.stunFrames >= 18 ? 'STAGGER' : 'BLOCK';
       case 'dodge': return f.dodgeDir > 0 ? 'DODGE_RIGHT' : 'DODGE_LEFT';
       case 'attack': return f.attack?.clip ?? 'IDLE';
-      case 'hitstun': return f.hitFromBack ? 'HIT_BACK' : f.stunFrames >= 28 ? 'HIT_HEAVY' : f.hitsTaken % 2 ? 'HIT_FRONT' : 'HIT_FRONT_B';
+      case 'hitstun': return f.guardBroken || f.stagger ? 'STAGGER' : f.hitFromBack ? 'HIT_BACK' : f.stunFrames >= 28 ? 'HIT_HEAVY' : f.hitsTaken % 2 ? 'HIT_FRONT' : 'HIT_FRONT_B';
       case 'knockdown': case 'defeat': return f.grounded && f.vy === 0 ? (f.state === 'defeat' ? 'DEFEAT' : 'KNOCKDOWN') : 'LAUNCH';
       case 'getup': return 'GETUP';
       case 'victory': return 'VICTORY';

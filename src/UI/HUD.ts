@@ -16,7 +16,7 @@ export const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html
 /** DOM battle HUD, character select and result screen. Contains no game logic. */
 export class HUD {
   readonly root = el('div', 'hud');
-  private bars: Array<{ fill: HTMLElement; lag: HTMLElement; bar: HTMLElement; energy: HTMLElement; efill: HTMLElement; pips: HTMLElement[] }> = [];
+  private bars: Array<{ fill: HTMLElement; lag: HTMLElement; bar: HTMLElement; energy: HTMLElement; efill: HTMLElement; guard: HTMLElement; gfill: HTMLElement; pips: HTMLElement[] }> = [];
   private timer = el('div', 'timer', '60');
   private combo = el('div', 'combo');
   private banner = el('div', 'banner');
@@ -50,9 +50,10 @@ export class HUD {
       const bar = el('div', 'bar'); const lag = el('div', 'lag'); const fill = el('div', 'fill');
       bar.append(lag, fill); box.append(bar);
       const energy = el('div', 'energy'); const efill = el('div', 'fill'); energy.append(efill); box.append(energy);
+      const guard = el('div', 'guard'); const gfill = el('div', 'fill'); guard.append(gfill); box.append(guard);
       const pips = [el('div', 'pip'), el('div', 'pip')];
       const rp = el('div', 'round-pips'); rp.style.cssText = `margin-top:8px;${i ? 'justify-content:flex-end' : ''}`; rp.append(...pips); box.append(rp);
-      this.bars.push({ fill, lag, bar, energy, efill, pips });
+      this.bars.push({ fill, lag, bar, energy, efill, guard, gfill, pips });
       top.append(box);
       if (i === 0) { const c = el('div', 'center'); c.append(this.timer, this.modeTag); top.append(c); }
     }
@@ -74,7 +75,7 @@ export class HUD {
     const exit = el('button', 'tbtn2 danger', 'EXIT'); exit.onclick = () => this.onTrainingExit();
     this.training.append(dm, reset, exit);
 
-    const hint = el('div', 'hint', '<b>A/D</b>move <b>W</b>jump <b>Hold back</b>block <b>S/Shift</b>walk around <b>Q/E</b>sidestep <b>J</b>light <b>K</b>heavy <b>L</b>kick <b>U</b>special <b>I</b>ultimate <b>Esc</b>pause');
+    const hint = el('div', 'hint', '<b>A/D</b>move <b>W</b>jump <b>Hold back</b>block (tap = parry) <b>C</b>crouch <b>G</b>grab <b>S/Shift</b>walk around <b>Q/E</b>sidestep <b>J</b>light <b>K</b>heavy <b>L</b>kick <b>U</b>special <b>I</b>ultimate <b>Esc</b>pause');
     this.root.append(this.letterEl, top, this.combo, this.banner, hint, this.fps, this.perf, this.camDbg, this.muteBtn, this.pauseBtn, this.training);
     parent.append(this.root, this.select, this.result);
   }
@@ -98,6 +99,11 @@ export class HUD {
   }
   setEnergy(i: 0 | 1, v: number): void {
     const b = this.bars[i]; b.efill.style.width = `${v}%`; b.energy.classList.toggle('full', v >= 100);
+  }
+  /** Guard meter (0..100): green = safe, orange = nearly broken, red flash = guard broken. */
+  setGuard(i: 0 | 1, v: number, broken: boolean): void {
+    const b = this.bars[i]; b.gfill.style.width = `${Math.min(100, v)}%`;
+    b.guard.classList.toggle('hot', v >= 70); b.guard.classList.toggle('broken', broken);
   }
   setTimer(sec: number, infinite = false): void {
     const s = Math.max(0, Math.ceil(sec)); this.timer.textContent = infinite ? '∞' : String(s); this.timer.classList.toggle('low', !infinite && s <= 10);

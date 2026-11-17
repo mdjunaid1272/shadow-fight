@@ -1,7 +1,7 @@
-﻿export type Button = 'light' | 'heavy' | 'kick' | 'special' | 'ultimate';
+export type Button = 'light' | 'heavy' | 'kick' | 'special' | 'ultimate' | 'grab';
 
 export type FighterState =
-  | 'idle' | 'walk' | 'jump' | 'block' | 'dodge' | 'attack'
+  | 'idle' | 'walk' | 'jump' | 'block' | 'crouch' | 'dodge' | 'attack' | 'grabbed'
   | 'hitstun' | 'blockstun' | 'knockdown' | 'getup' | 'victory' | 'defeat';
 
 /** One frame of controller output, already expressed relative to the fighter. */
@@ -19,6 +19,8 @@ export interface FighterInput {
    * Combined with `fwd` this is a full local movement vector; pure lateral input orbits the opponent.
    */
   side?: number;
+  /** Held: crouch. Crouching ducks high attacks and guards low ones; crouch + light/heavy/kick performs launcher/sweep/low kick. */
+  crouch?: boolean;
 }
 
 export const emptyInput = (): FighterInput => ({ fwd: 0, jump: false, block: false, pressed: [], dodge: 0 });
@@ -61,6 +63,18 @@ export interface AttackData {
    *  - swing:  balls along a horizontal arc of `arc` degrees, sweeping across the active frames (sword)
    */
   shape?: HitShape;
+  /** Where the attack hits: high (ducked by crouching), mid, low (must be crouch-guarded). Default mid. */
+  level?: AttackLevel;
+  /** Guard-meter damage when blocked (default: 15% of damage). 100 breaks the guard. */
+  guardDamage?: number;
+  /** Launches the victim into the air (initial upward speed, m/frame) so the combo can continue as a juggle. */
+  launch?: number;
+  /** Throw: ignores block, beats idle/guarding fighters, can be teched with the grab button. */
+  grab?: boolean;
+  /** Which key-pose pair the animation uses (defaults to clip), so a move can reuse another move's poses. */
+  poseSet?: string;
+  /** Frames of landing lag after an air attack touches down (halved if it connected). */
+  landLag?: number;
   /** thrust: where the shaft starts (m from body centre; default 0.35). */
   reachStart?: number;
   /** swing: total horizontal sweep in degrees (default 80). */
@@ -68,6 +82,7 @@ export interface AttackData {
 }
 
 export type HitShape = 'sphere' | 'thrust' | 'swing';
+export type AttackLevel = 'high' | 'mid' | 'low';
 
 /** One ball of an attack's collision shape (world space). */
 export interface HitSample { x: number; y: number; z: number; r: number }

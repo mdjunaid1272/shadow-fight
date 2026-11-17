@@ -28,6 +28,8 @@ export const emptyInput = (): FighterInput => ({ fwd: 0, jump: false, block: fal
 /** Frame-data driven attack definition (60 simulation frames per second). */
 export interface AttackData {
   id: string;
+  /** Display name for the move list (defaults to a generic name per id). */
+  name?: string;
   button: Button;
   startup: number;
   active: number;
@@ -75,6 +77,8 @@ export interface AttackData {
   poseSet?: string;
   /** Frames of landing lag after an air attack touches down (halved if it connected). */
   landLag?: number;
+  /** Multi-hit move: the active window is split into this many separate hits (each is blocked / scaled on its own). */
+  hits?: number;
   /** thrust: where the shaft starts (m from body centre; default 0.35). */
   reachStart?: number;
   /** swing: total horizontal sweep in degrees (default 80). */

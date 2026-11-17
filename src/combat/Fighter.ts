@@ -92,7 +92,8 @@ export class Fighter {
   /** Crouch input held this frame. */
   private crouchHeld = false;
   private dodgeCooldown = 0;
-  private buffered: { button: Button; frames: number } | null = null;
+  /** A buffered button press, with the stick direction held WHEN it was pressed (so directional moves survive the buffer). */
+  private buffered: { button: Button; frames: number; fwd: number; side: number } | null = null;
   /** Set when a dodge made an attack whiff; consumed by the combat manager. */
   perfectDodge = false;
 
@@ -204,7 +205,7 @@ export class Fighter {
     this.stateFrame++;
     this.perfectDodge = false; this.moveSide = 0;
     if (this.buffered && --this.buffered.frames <= 0) this.buffered = null;
-    if (inp.pressed.length) this.buffered = { button: inp.pressed[inp.pressed.length - 1], frames: BUFFER_FRAMES };
+    if (inp.pressed.length) this.buffered = { button: inp.pressed[inp.pressed.length - 1], frames: BUFFER_FRAMES, fwd: inp.fwd, side: inp.side ?? 0 };
     if (this.dodgeCooldown > 0) this.dodgeCooldown--;
     if (this.landTimer > 0) this.landTimer--;
     this.invulnerable = false;
@@ -233,7 +234,7 @@ export class Fighter {
     this.faceToward(opp.x, opp.z);
     if (this.landLag > 0) return; // landing recovery after a whiffed air attack
     if (this.buffered) {
-      const id = this.attackFor(this.buffered.button);
+      const id = this.attackFor(this.buffered.button, this.buffered.fwd, this.buffered.side);
       const a = this.stats.attacks[id];
       this.buffered = null;
       if (a && this.energy >= (a.cost ?? 0)) {
@@ -276,15 +277,46 @@ export class Fighter {
     } else if (this.state !== 'idle') this.setState('idle');
   }
 
-  /** Which move a button press performs in the current context (crouching, counter window). */
-  private attackFor(btn: Button): string {
+  /** Air moves: back + light = retreating air cut, sideways + heavy = air spin, forward + kick = dive kick. */
+  private airAttackFor(btn: 'light' | 'heavy' | 'kick', fwd: number, side: number): string {
+    const A = this.stats.attacks, has = (id: string) => !!A[id];
+    if (btn === 'light') return fwd < -0.35 && has('airback') ? 'airback' : 'airlight';
+    if (btn === 'heavy') return Math.abs(side) > 0.35 && has('airspin') ? 'airspin' : 'airheavy';
+    return fwd > 0.35 && has('divekick') ? 'divekick' : 'airkick';
+  }
+
+  /** Which move a button press performs in the current context (direction held, crouching, running, counter window). */
+  private attackFor(btn: Button, fwd = 0, side = 0): string {
+    const A = this.stats.attacks, has = (id: string) => !!A[id];
     const crouch = this.crouchHeld || this.state === 'crouch';
-    const counter = this.counterWindow > 0 && !!this.stats.attacks.counter;
+    const counter = this.counterWindow > 0 && has('counter');
+    const f = fwd > 0.35, b = fwd < -0.35, s = Math.abs(side) > 0.35; // direction held when the button was pressed
     switch (btn) {
-      case 'light': return counter ? 'counter' : crouch ? 'launcher' : 'light1';
-      case 'heavy': return counter ? 'counter' : crouch ? 'sweep' : 'heavy';
-      case 'kick': return crouch ? 'lowkick' : 'kick';
-      default: return btn; // special, ultimate, grab
+      case 'light':
+        if (counter) return 'counter';
+        if (crouch) return 'launcher';
+        if (this.running && has('sprintstrike')) return 'sprintstrike';   // sprinting + light: running strike
+        if (f && has('dashstrike')) return 'dashstrike';                  // forward + light: step-in strike
+        if (b && has('retreatcut')) return 'retreatcut';                  // back + light: retreating cut
+        return 'light1';
+      case 'heavy':
+        if (counter) return 'counter';
+        if (crouch) return 'sweep';
+        if (f && has('rush')) return 'rush';                              // forward + heavy: charging blow
+        if (s && has('spinslash')) return 'spinslash';                    // sideways + heavy: wide spinning slash (beats circling)
+        return 'heavy';
+      case 'kick':
+        if (crouch) return 'lowkick';
+        if (f && has('axekick')) return 'axekick';                        // forward + kick: overhead axe kick
+        if (b && has('backkick')) return 'backkick';                      // back + kick: retreating push kick
+        if (s && has('spinkick')) return 'spinkick';                      // sideways + kick: spinning kick
+        return 'kick';
+      case 'special':
+        if (crouch && has('special_low')) return 'special_low';           // crouch + special: low shadow art
+        if (f && has('special_f')) return 'special_f';                    // forward + special: advancing shadow art
+        if (b && has('special_b')) return 'special_b';                    // back + special: evasive shadow art
+        return 'special';
+      default: return btn; // ultimate, grab
     }
   }
 
@@ -338,6 +370,11 @@ export class Fighter {
       const step = Math.min(a.lunge / (a.startup + a.active), Math.max(0, gap - BODY_RADIUS * 2 - 0.05));
       this.x += this.fx * step; this.z += this.fz * step;
     }
+    // Multi-hit moves: re-arm the hit at even intervals through the active frames
+    if (a.hits && a.hits > 1 && this.attackFrame > a.startup && this.attackFrame < a.startup + a.active) {
+      const seg = Math.max(1, Math.floor(a.active / a.hits));
+      if ((this.attackFrame - a.startup) % seg === 0) this.hitDone = false;
+    }
     // Chain cancel: only after the attack connected, inside the cancel window.
     const recFrame = this.attackFrame - (a.startup + a.active);
     if (this.connected && recFrame >= 0 && recFrame < a.cancelWindow && this.buffered) {
@@ -349,7 +386,7 @@ export class Fighter {
 
   private stepJump(inp: FighterInput): void {
     const b = this.buffered?.button;
-    if (b === 'light' || b === 'heavy' || b === 'kick') { this.startAttack(b === 'light' ? 'airlight' : b === 'heavy' ? 'airheavy' : 'airkick'); return; }
+    if (b === 'light' || b === 'heavy' || b === 'kick') { this.startAttack(this.airAttackFor(b, this.buffered!.fwd, this.buffered!.side)); return; }
     // limited air control: the held direction steers the jump (6% of the gap per frame), it never overrides it outright
     const t = this.airTarget(inp.fwd, Math.max(-1, Math.min(1, inp.side ?? 0)));
     this.jvx += (t.x - this.jvx) * AIR_CONTROL; this.jvz += (t.z - this.jvz) * AIR_CONTROL;

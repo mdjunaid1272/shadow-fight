@@ -75,6 +75,38 @@ const SHARED: Record<string, Atk> = {
     wind: { rootY: -0.1, torso: V(10, 0, 0), shR: V(-70, 0, -20), elR: V(-60, 0, 0), shL: V(-70, 0, 20), elL: V(-60, 0, 0) },
     strike: { rootY: -0.12, rootZ: 0.22, torso: V(24, 0, 0), hips: V(10, 0, 0), shR: V(-100, 0, -14), elR: V(-6, 0, 0), shL: V(-100, 0, 14), elL: V(-6, 0, 0), hpR: V(-40, 0, 4), knR: V(40, 0, 0), hpL: V(26, 0, -4) },
   },
+  AXEKICK: { // forward + kick: leg raised high, then chopped down
+    wind: { rootY: -0.02, torso: V(-12, 8, 0), hips: V(-6, 6, 0), hpR: V(-118, 0, 4), knR: V(34, 0, 0), hpL: V(8, 0, -4), knL: V(24, 0, 0), shR: V(-70, 0, -24), shL: V(-70, 0, 24) },
+    strike: { rootY: -0.1, rootZ: 0.12, torso: V(24, 8, 0), hips: V(12, 6, 0), hpR: V(-42, 0, 4), knR: V(8, 0, 0), hpL: V(20, 0, -4), knL: V(34, 0, 0), shR: V(-60, 0, -30), shL: V(-60, 0, 30) },
+  },
+  BACKKICK: { // back + kick: bend forward and drive the leg out behind
+    wind: { rootY: -0.1, torso: V(14, 10, 0), hips: V(8, 6, 0), hpR: V(14, 0, 4), knR: V(54, 0, 0), hpL: V(14, 0, -4), knL: V(36, 0, 0), shR: V(-80, 0, -20), shL: V(-80, 0, 20) },
+    strike: { rootY: -0.12, rootZ: -0.08, torso: V(48, 10, 0), hips: V(22, 6, 0), hpR: V(58, 0, 4), knR: V(8, 0, 0), hpL: V(16, 0, -4), knL: V(40, 0, 0), shR: V(-60, 0, -30), shL: V(-60, 0, 30) },
+  },
+  SPINSLASH: { // sideways + heavy: a full body twist with the weapon out wide
+    wind: { rootY: -0.1, torso: V(10, -85, 0), hips: V(6, -40, 0), shR: V(-70, 0, -70), elR: V(-20, 0, 0), shL: V(-70, 0, 70), elL: V(-20, 0, 0), hpR: V(-26, 0, 8), knR: V(40, 0, 0), hpL: V(20, 0, -8), knL: V(40, 0, 0) },
+    strike: { rootY: -0.12, rootZ: 0.12, torso: V(14, 88, 0), hips: V(8, 46, 0), shR: V(-80, 0, 40), elR: V(-6, 0, 0), shL: V(-80, 0, -40), elL: V(-6, 0, 0), hpR: V(-40, 0, 8), knR: V(40, 0, 0), hpL: V(30, 0, -8), knL: V(30, 0, 0) },
+  },
+  SPINKICK: { // sideways + kick: spinning heel kick
+    wind: { rootY: -0.06, torso: V(10, -60, 0), hips: V(6, -30, 0), hpR: V(-20, 0, 4), knR: V(60, 0, 0), hpL: V(12, 0, -4), knL: V(34, 0, 0), shR: V(-70, 0, -30), shL: V(-70, 0, 30) },
+    strike: { rootY: -0.04, rootZ: 0.1, torso: V(-10, 72, 0), hips: V(-6, 38, 0), hpR: V(-92, 0, 4), knR: V(8, 0, 0), hpL: V(8, 0, -4), knL: V(24, 0, 0), shR: V(-60, 0, -50), shL: V(-60, 0, 50) },
+  },
+  DIVEKICK: { // forward + kick in the air: tuck, then both legs drive down and forward
+    wind: { rootY: 0.03, torso: V(-4, 0, 0), hpR: V(-40, 0, 4), knR: V(56, 0, 0), hpL: V(-24, 0, -4), knL: V(40, 0, 0), shR: V(-66, 0, -16), shL: V(-66, 0, 16) },
+    strike: { rootY: 0.02, rootZ: 0.1, torso: V(24, 0, 0), hpR: V(-82, 0, 4), knR: V(14, 0, 0), hpL: V(-58, 0, -4), knL: V(22, 0, 0), shR: V(-42, 0, -30), shL: V(-42, 0, 30) },
+  },
+  AIRSPIN: { // sideways + heavy in the air: spinning slash
+    wind: { rootY: 0.04, torso: V(-6, -60, 0), hips: V(-2, -28, 0), shR: V(-100, 0, -60), elR: V(-20, 0, 0), shL: V(-100, 0, 60), elL: V(-20, 0, 0), hpR: V(-40, 0, 4), knR: V(60, 0, 0), hpL: V(-22, 0, -4), knL: V(46, 0, 0) },
+    strike: { rootY: 0.02, rootZ: 0.08, torso: V(10, 72, 0), hips: V(4, 34, 0), shR: V(-90, 0, 50), elR: V(-6, 0, 0), shL: V(-90, 0, -50), elL: V(-6, 0, 0), hpR: V(-50, 0, 4), knR: V(50, 0, 0), hpL: V(-28, 0, -4), knL: V(40, 0, 0) },
+  },
+  FLIPKICK: { // rising flip kick (launcher finisher)
+    wind: { rootY: -0.2, torso: V(30, 10, 0), hips: V(14, 6, 0), hpR: V(-40, 0, 4), knR: V(80, 0, 0), hpL: V(30, 0, -4), knL: V(80, 0, 0), shR: V(-60, 0, -24), shL: V(-60, 0, 24) },
+    strike: { rootY: 0.05, rootZ: 0.1, torso: V(-30, 10, 0), hips: V(-14, 6, 0), hpR: V(-112, 0, 4), knR: V(10, 0, 0), hpL: V(-28, 0, -4), knL: V(40, 0, 0), shR: V(-60, 0, -34), shL: V(-60, 0, 34) },
+  },
+  KNEE: { // knee strike
+    wind: { rootY: -0.1, torso: V(14, 0, 0), hpR: V(-30, 0, 4), knR: V(70, 0, 0), hpL: V(14, 0, -4), knL: V(34, 0, 0), shR: V(-70, 0, -20), shL: V(-70, 0, 20) },
+    strike: { rootY: -0.04, rootZ: 0.14, torso: V(20, 0, 0), hips: V(10, 0, 0), hpR: V(-95, 0, 4), knR: V(96, 0, 0), hpL: V(10, 0, -4), knL: V(24, 0, 0), shR: V(-92, 0, -10), shL: V(-92, 0, 10) },
+  },
 };
 
 const ATTACKS: Record<WeaponKind, Record<string, Atk>> = {  katana: {

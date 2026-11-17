@@ -1,7 +1,7 @@
 import { RONIN } from '../src/combat/AttackData';
 import { CombatManager } from '../src/combat/CombatManager';
 import { Fighter } from '../src/combat/Fighter';
-import { emptyInput, type Button, type FighterInput } from '../src/combat/types';
+import { emptyInput, type AttackData, type Button, type FighterInput } from '../src/combat/types';
 import { EnemyAI, type Behavior, type Difficulty } from '../src/ai/EnemyAI';
 import { CHARACTERS, getCharacter } from '../src/characters/CharacterData';
 import { Tutorial, TUTORIAL_STEPS } from '../src/core/Tutorial';
@@ -771,6 +771,126 @@ import { ModeManager, STORY, CHAPTERS } from '../src/core/Modes';
   ok(dmg('titan') > dmg('ronin') && dmg('ronin') > dmg('shinobi'), `CH5 heavy damage: Titan ${dmg('titan')} > Ronin ${dmg('ronin')} > Shinobi ${dmg('shinobi')}`);
   ok(S.akira.attacks.light1.reach > S.ronin.attacks.light1.reach && S.ronin.attacks.light1.reach > S.shinobi.attacks.light1.reach, 'CH6 reach: Akira > Ronin > Shinobi');
   ok(S.shinobi.attacks.light1.startup < S.ronin.attacks.light1.startup && S.titan.attacks.light1.startup > S.ronin.attacks.light1.startup, 'CH7 light startup: Shinobi fastest, Titan slowest');
+}
+
+// ================================================================ MOVE SET: many different moves
+{
+  type Cmd = { btn: Button; fwd?: number; side?: number; crouch?: boolean; run?: boolean; air?: boolean };
+  // the input that performs each move directly (chain finishers are reached through the chain graph instead)
+  const DIRECT: Record<string, Cmd> = {
+    light1: { btn: 'light' }, kick: { btn: 'kick' }, heavy: { btn: 'heavy' },
+    lowkick: { btn: 'kick', crouch: true }, sweep: { btn: 'heavy', crouch: true }, launcher: { btn: 'light', crouch: true }, grab: { btn: 'grab' },
+    dashstrike: { btn: 'light', fwd: 1 }, rush: { btn: 'heavy', fwd: 1 }, axekick: { btn: 'kick', fwd: 1 },
+    retreatcut: { btn: 'light', fwd: -1 }, backkick: { btn: 'kick', fwd: -1 }, spinslash: { btn: 'heavy', side: 1 }, spinkick: { btn: 'kick', side: 1 },
+    sprintstrike: { btn: 'light', fwd: 1, run: true },
+    special: { btn: 'special' }, special_f: { btn: 'special', fwd: 1 }, special_b: { btn: 'special', fwd: -1 }, special_low: { btn: 'special', crouch: true }, ultimate: { btn: 'ultimate' },
+    airlight: { btn: 'light', air: true }, airheavy: { btn: 'heavy', air: true }, airkick: { btn: 'kick', air: true },
+    divekick: { btn: 'kick', fwd: 1, air: true }, airback: { btn: 'light', fwd: -1, air: true }, airspin: { btn: 'heavy', side: 1, air: true },
+  };
+  const idle = emptyInput;
+  const mkSim = (id: string, sep = 6, foeId = 'ronin') => {
+    const f = new Fighter(getCharacter(id).stats, bounds), foe = new Fighter(getCharacter(foeId).stats, bounds);
+    f.reset(-sep / 2, 0, 1); foe.reset(sep / 2, 0, -1); f.energy = 100; return { f, foe, cm: new CombatManager([f, foe]) };
+  };
+  const inputFor = (c: Cmd): FighterInput => ({ ...emptyInput(), fwd: c.fwd ?? 0, side: c.side ?? 0, crouch: !!c.crouch, pressed: [c.btn] });
+  const perform = (id: string, c: Cmd): string | undefined => {
+    const { f, cm } = mkSim(getCharacter(id).id);
+    if (c.air) { cm.step([{ ...emptyInput(), jump: true }, idle()]); for (let i = 0; i < 6; i++) cm.step([idle(), idle()]); }
+    if (c.run) { for (let i = 0; i < 70; i++) cm.step([{ ...emptyInput(), fwd: 1 }, idle()]); }
+    cm.step([inputFor(c), idle()]);
+    return f.attack?.id;
+  };
+  const chars = ['ronin', 'shinobi', 'titan', 'akira'];
+
+  // ---- MS1: every move that has a direct input really starts from that input
+  for (const ch of chars) {
+    const A = getCharacter(ch).stats.attacks; const bad: string[] = [];
+    for (const [mid, c] of Object.entries(DIRECT)) { if (!A[mid]) continue; const got = perform(ch, c); if (got !== mid) bad.push(`${mid}->${got}`); }
+    ok(bad.length === 0, `MS1 ${ch}: all ${Object.keys(DIRECT).filter((m) => A[m]).length} directly-input moves start from their inputs${bad.length ? ' (wrong: ' + bad.join(', ') + ')' : ''}`);
+  }
+  // ---- MS2: chain-only moves are reachable, and really happen when the chain is played
+  for (const ch of chars) {
+    const A = getCharacter(ch).stats.attacks; const direct = new Set(Object.keys(DIRECT).filter((m) => A[m]));
+    const reach = new Map<string, Button[]>(); const queue: Array<[string, Button[]]> = [];
+    for (const d of ['light1', 'kick', 'heavy', 'dashstrike', 'launcher', 'lowkick']) { if (A[d]) { reach.set(d, []); queue.push([d, []]); } }
+    while (queue.length) { const [k, p] = queue.shift()!; for (const [b, to] of Object.entries(A[k].chain)) if (!reach.has(to as string) && A[to as string]) { reach.set(to as string, [...p, b as Button]); queue.push([to as string, [...p, b as Button]]); } }
+    const unreachable = Object.keys(A).filter((m) => !direct.has(m) && !reach.has(m) && m !== 'counter');
+    ok(unreachable.length === 0, `MS2 ${ch}: every move can be performed (${unreachable.length ? 'unreachable: ' + unreachable.join(', ') : 'direct input or chain'})`);
+    // play each chain-only move for real
+    const chainOnly = [...reach.keys()].filter((m) => !direct.has(m) && reach.get(m)!.length > 0);
+    const failed: string[] = [];
+    for (const target of chainOnly) {
+      const path = reach.get(target)!; let start = ''; // find which starter leads here
+      for (const d of ['light1', 'kick', 'heavy', 'dashstrike', 'launcher', 'lowkick']) {
+        let cur = d, okp = !!A[d]; for (const b of path) { const nx = A[cur]?.chain[b]; if (!nx) { okp = false; break; } cur = nx; } if (okp && cur === target) { start = d; break; }
+      }
+      const { f, foe, cm } = mkSim(ch, 1.8); let next = 0, done = false, pressedFrom = ''; cm.step([inputFor(DIRECT[start]), idle()]);
+      for (let i = 0; i < 400 && !done; i++) {
+        foe.health = foe.stats.maxHealth; if (foe.state === 'defeat') foe.setState('idle'); foe.x = f.x + 0.95; foe.z = f.z; foe.fx = -1; foe.fz = 0; if (foe.state === 'knockdown' || foe.state === 'getup') foe.setState('idle');
+        const canPress = !cm.frozen && f.state === 'attack' && f.connected && f.attackPhase !== 'startup' && next < path.length && f.attack!.id !== pressedFrom; // one press per chain link (input is ignored during hitstop)
+        if (canPress) pressedFrom = f.attack!.id;
+        const press = canPress ? { ...emptyInput(), pressed: [path[next++]] } : idle();
+        cm.step([press, idle()]); if (f.attack?.id === target) done = true;
+      }
+      if (!done) failed.push(`${target} (${start} > ${path.join(',')})`);
+    }
+    ok(failed.length === 0, `MS2 ${ch}: ${chainOnly.length} chain finishers/branches all happen when the chain is played${failed.length ? ' (failed: ' + failed.join('; ') + ')' : ''}`);
+  }
+  // ---- MS3: every ground move can actually connect with something (nothing is a dud)
+  for (const ch of chars) {
+    const A = getCharacter(ch).stats.attacks; const duds: string[] = [];
+    for (const [mid, c] of Object.entries(DIRECT)) {
+      if (!A[mid] || c.air) continue; let connected = false;
+      for (let d = 1.0; d <= 3.8 && !connected; d += 0.2) {
+        const { f, foe, cm } = mkSim(ch, d); if (c.run) { for (let i = 0; i < 70; i++) { f.x = -d / 2; cm.step([{ ...emptyInput(), fwd: 1 }, idle()]); } f.reset(-d / 2, 0, 1); f.energy = 100; f.running = true; }
+        let hit = false; cm.events.on('hit', (h) => { if (h.attacker === 0) hit = true; }); cm.events.on('grab', () => { hit = true; });
+        cm.step([inputFor(c), idle()]); for (let i = 0; i < 80 && !hit; i++) { foe.health = foe.stats.maxHealth; cm.step([idle(), idle()]); }
+        connected = hit;
+      }
+      if (!connected) duds.push(mid);
+    }
+    ok(duds.length === 0, `MS3 ${ch}: every ground move connects at some range${duds.length ? ' (duds: ' + duds.join(', ') + ')' : ''}`);
+  }
+  // ---- MS4: multi-hit moves land several separate hits
+  for (const [ch, mid] of [['shinobi', 'special_f'], ['akira', 'special_f']] as const) {
+    const A = getCharacter(ch).stats.attacks[mid]; let best = 0;
+    for (let d = 1.4; d <= 3.4; d += 0.2) { const { f, foe, cm } = mkSim(ch, d); let n = 0; cm.events.on('hit', (h) => { if (h.attacker === 0 && !h.blocked) n++; });
+      cm.step([inputFor(DIRECT[mid]), idle()]); for (let i = 0; i < 80; i++) { foe.health = foe.stats.maxHealth; cm.step([idle(), idle()]); } best = Math.max(best, n); void f; }
+    ok(A.hits === 3 && best >= 2, `MS4 ${ch} ${A.name}: a ${A.hits}-hit move lands ${best} separate hits`);
+  }
+  // ---- MS5: variety - plenty of moves per character, and none of them are clones
+  const sig = (a: AttackData) => [a.startup, a.active, a.recovery, a.damage, Math.round(a.reach * 100), a.shape ?? 's', a.level ?? 'm', a.hits ?? 1, a.lunge.toFixed(2)].join('|');
+  for (const ch of chars) {
+    const A = getCharacter(ch).stats.attacks, ids = Object.keys(A), seen = new Map<string, string>(); const clones: string[] = [];
+    for (const id of ids) { const s = sig(A[id]); if (seen.has(s)) clones.push(`${seen.get(s)}=${id}`); else seen.set(s, id); }
+    ok(ids.length >= 30, `MS5 ${ch}: ${ids.length} distinct moves (the shared table had 16)`);
+    ok(clones.length === 0, `MS5 ${ch}: no two moves share identical frame data${clones.length ? ' (clones: ' + clones.join(', ') + ')' : ''}`);
+  }
+  { const all = new Set<string>(); for (const ch of chars) for (const a of Object.values(getCharacter(ch).stats.attacks)) all.add(ch + ':' + (a.name ?? a.id));
+    const names = chars.map((ch) => Object.values(getCharacter(ch).stats.attacks).filter((a) => a.name).length);
+    ok(all.size >= 120 && names.every((n) => n >= 8), `MS5 ${all.size} moves across the roster; each fighter has ${names.join('/')} signature-named techniques`); }
+  // ---- MS6: the direction held WHEN the button was pressed decides the move, even if the press is buffered
+  { const { f, cm } = mkSim('ronin', 6); cm.step([press('light'), idle()]); for (let i = 0; i < 13; i++) cm.step([idle(), idle()]);
+    cm.step([{ ...emptyInput(), fwd: 1, pressed: ['light'] }, idle()]); // pressed with forward held, during the recovery of the jab
+    let id = ''; for (let i = 0; i < 30; i++) { cm.step([idle(), idle()]); if (f.attack && f.attack.id !== 'light1' && !id) id = f.attack.id; }
+    ok(id === 'dashstrike', `MS6 a buffered press keeps the direction it was pressed with (${id || 'none'})`);
+  }
+  // ---- MS7: the AI uses a wide range of the moves over a fight
+  { const used = new Set<string>(); const ids = ['dashstrike', 'rush', 'axekick', 'retreatcut', 'backkick', 'spinslash', 'spinkick', 'special_f', 'special_b', 'special_low', 'light1', 'kick', 'heavy', 'lowkick', 'sweep', 'launcher', 'grab', 'special', 'ultimate'];
+    for (const [beh, seed] of [['AGGRESSIVE', 3], ['DEFENSIVE', 4], ['TECHNICAL', 5], ['BALANCED', 6]] as const) {
+      const ai = new EnemyAI('HARD', beh, seed, 'ronin'); const { f: foe, foe: me, cm } = mkSim('ronin', 1.8); const a = foe, b = me;
+      for (let fr = 0; fr < 14000; fr++) { a.health = 1000; if (a.state === 'defeat') a.setState('idle'); b.energy = Math.max(b.energy, fr % 700 === 0 ? 100 : b.energy);
+        const strafe = fr % 400 < 90 ? { ...emptyInput(), side: 1 } : fr % 400 < 200 ? { ...emptyInput(), block: true } : fr % 400 < 260 ? { ...emptyInput(), crouch: true } : emptyInput();
+        cm.step([strafe, ai.think(b, a)]); }
+      for (const id of ids) if ((ai.stats[id] ?? 0) > 0) used.add(id);
+    }
+    ok(used.size >= 13, `MS7 the AI uses ${used.size} different moves across styles (${[...used].join(', ')})`);
+  }
+  // ---- MS8: move list documents all of it
+  for (const c of CHARACTERS) {
+    const html = buildMoveList(c), n = Object.keys(c.stats.attacks).filter((k) => k !== 'light4' || c.stats.attacks.light3?.chain.light).length;
+    ok(html.includes('DIRECTION MOVES') && html.includes('forward + J') && html.includes('SHADOW ARTS') && html.includes('CHAIN FINISHERS') && /\d+ MOVES/.test(html), `MS8 ${c.id}: the move list is grouped and shows the direction inputs (${html.match(/(\d+) MOVES/)?.[1]} of ${n} listed)`);
+  }
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASSED');

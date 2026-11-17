@@ -48,7 +48,7 @@ const DEFAULT_STYLE: StyleCfg = STYLE.ronin;
 
 type Mode = 'approach' | 'attack' | 'block' | 'retreat' | 'wait' | 'strafe' | 'parry';
 /** An input the AI wants to perform: a button, optionally with crouch held (low attacks, launcher). */
-interface Act { id: string; btn: Button; crouch?: boolean }
+interface Act { id: string; btn: Button; crouch?: boolean; fwd?: number; side?: number }
 
 const MAX_BLOCK_FRAMES = 40;
 const BLOCK_COOLDOWN = 45;
@@ -63,7 +63,7 @@ function mulberry32(seed: number): () => number {
 
 /** How far an attack can reach a standing opponent (body centre to body centre), including its forward lunge. */
 export function attackRange(a: AttackData): number {
-  return a.reach + a.radius + 0.32 + (a.grab ? -0.25 : Math.min(Math.max(a.lunge, 0), 1.0) * 0.6);
+  return a.reach + a.radius + 0.32 + (a.grab ? -0.25 : Math.min(Math.max(a.lunge, 0), 1.6) * 0.6);
 }
 
 /**
@@ -253,7 +253,7 @@ export class EnemyAI {
       const act = this.queued; this.queued = null;
       // a boss recovers its composure faster in later phases (phase 3 acts about 30% more often)
       this.cooldown = (25 + this.rng() * 35 / this.beh.aggression) * (this.behavior === 'BOSS' ? [1, 0.88, 0.7][this.phase - 1] : 1);
-      const major = act.id === 'special' || act.id === 'ultimate' || (act.id === 'grab' && this.behavior === 'BOSS');
+      const major = act.id.startsWith('special') || act.id === 'ultimate' || (act.id === 'grab' && this.behavior === 'BOSS');
       if (this.behavior === 'BOSS' && major) { // telegraph first
         this.tell = (this.phase === 3 ? 12 : this.phase === 2 ? 16 : 22) + (act.id === 'ultimate' ? 10 : 0);
         this.tellAct = act; this.telegraphMove = act.id; this.telegraphing = true;
@@ -287,6 +287,7 @@ export class EnemyAI {
   /** Turn a chosen move into the input a controller would send. */
   private perform(act: Act, inp: FighterInput): void {
     inp.pressed.push(act.btn); if (act.crouch) inp.crouch = true;
+    if (act.fwd) inp.fwd = act.fwd; if (act.side) inp.side = act.side; // the direction held while pressing selects the move
     this.history.push(act.id); if (this.history.length > HISTORY) this.history.shift();
     this.count(act.id); this.attackCount++;
   }
@@ -297,6 +298,17 @@ export class EnemyAI {
       case 'sweep': return { id, btn: 'heavy', crouch: true };
       case 'launcher': return { id, btn: 'light', crouch: true };
       case 'light1': return { id, btn: 'light' };
+      // direction moves: the same button with a direction held, exactly as a player would input them
+      case 'dashstrike': return { id, btn: 'light', fwd: 1 };
+      case 'rush': return { id, btn: 'heavy', fwd: 1 };
+      case 'axekick': return { id, btn: 'kick', fwd: 1 };
+      case 'retreatcut': return { id, btn: 'light', fwd: -1 };
+      case 'backkick': return { id, btn: 'kick', fwd: -1 };
+      case 'spinslash': return { id, btn: 'heavy', side: 1 };
+      case 'spinkick': return { id, btn: 'kick', side: -1 };
+      case 'special_f': return { id, btn: 'special', fwd: 1 };
+      case 'special_b': return { id, btn: 'special', fwd: -1 };
+      case 'special_low': return { id, btn: 'special', crouch: true };
       default: return { id, btn: id as Button };
     }
   }
@@ -338,6 +350,18 @@ export class EnemyAI {
     if (usable('sweep')) scores.push(['sweep', (0.12 + this.beh.lows * 0.5 + (oppGuarding && !oppCrouch ? 0.3 : 0)) * S.low * ag]);
     if (usable('launcher')) scores.push(['launcher', (0.1 + (this.behavior === 'TECHNICAL' ? 0.35 : 0.1) + (oppCrouch ? 0.3 : 0)) * ag]);
     if (usable('grab')) scores.push(['grab', (0.1 + this.beh.grab * 0.5 + (this.oppGuardFrames > 24 ? 0.9 : 0)) * S.grab]);
+    // direction moves, each chosen for the situation it is good at
+    const strafing = Math.abs(opp.moveSide) > 0;
+    if (usable('dashstrike')) scores.push(['dashstrike', (0.2 + (dist > 1.6 ? 0.45 : 0)) * ag * S.light]);             // closes distance
+    if (usable('rush')) scores.push(['rush', (0.12 + (oppGuarding ? 0.35 : 0)) * ag * S.heavy]);                        // pressures guards
+    if (usable('axekick')) scores.push(['axekick', (0.08 + (oppCrouch ? 0.7 : 0)) * ag * S.kick]);                      // overhead vs duckers
+    if (usable('spinslash')) scores.push(['spinslash', (0.08 + (strafing ? 0.9 : 0)) * ag]);                            // answers circling
+    if (usable('spinkick')) scores.push(['spinkick', (0.08 + (strafing ? 0.6 : 0)) * ag]);
+    if (dist < 1.5 && usable('retreatcut')) scores.push(['retreatcut', 0.1 + 0.3 * Math.max(0, this.beh.defense - 0.5)]); // spacing pokes for defensive styles
+    if (dist < 1.4 && usable('backkick')) scores.push(['backkick', 0.08 + 0.2 * this.beh.defense]);
+    if (me.energy >= (A.special_f?.cost ?? 40) && dist > 1.8 && dist < 3.3 && usable('special_f')) scores.push(['special_f', 0.4 * ag]);
+    if (me.energy >= (A.special_b?.cost ?? 40) && dist < 1.7 && usable('special_b')) scores.push(['special_b', 0.2 + 0.3 * this.beh.defense]);
+    if (me.energy >= (A.special_low?.cost ?? 40) && dist > 1.2 && dist < 2.4 && usable('special_low')) scores.push(['special_low', (0.15 + (oppGuarding && !oppCrouch ? 0.4 : 0)) * ag]);
     // shadow abilities: only when the meter allows (no free energy), at their own useful range
     if (me.energy >= (A.ultimate?.cost ?? 100) && dist > 1.2 && dist < 3.6) scores.push(['ultimate', 1.4 * ag]);
     else if (me.energy >= (A.special?.cost ?? 40) && dist > 1.7 && dist < 3.3) scores.push(['special', (0.55 + (this.behavior === 'BOSS' ? 0.2 * (this.phase - 1) : 0)) * ag]);

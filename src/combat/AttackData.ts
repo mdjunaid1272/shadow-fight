@@ -7,6 +7,8 @@ const a = (d: AttackData): AttackData => d;
  * buildAttacks(), overriding timings, reach, hit shape and - importantly - which moves chain into which.
  *
  * Inputs:  light / heavy / kick, with crouch held: launcher / sweep / low kick.  grab: throw.  special / ultimate: shadow energy.
+ * Direction: hold FORWARD / BACK / SIDEWAYS when pressing a button for a different move (dash strike, rush, axe kick, retreat cut,
+ *            back kick, spin slash, spin kick, shadow arts), SPRINT + light = running strike.
  * Air:     light / heavy / kick while jumping: airlight / airheavy / airkick.
  * Counter: after a parry, light or heavy performs the character's counter attack.
  * Heights: light jabs are HIGH (duck them), low kicks and sweeps are LOW (crouch-guard them), the rest MID.
@@ -106,6 +108,96 @@ export const BASE_ATTACKS: Record<string, AttackData> = {
     chain: {}, knockdown: false, hitstop: 3, clip: 'AIRKICK', air: true,
   }),
 
+  // ------------------------------------------------------------- directional moves (hold a direction while pressing the button)
+  dashstrike: a({ // forward + light: a step-in strike that closes distance
+    id: 'dashstrike', button: 'light', startup: 9, active: 3, recovery: 16,
+    damage: 55, hitstun: 24, blockstun: 12, knockback: 0.1, energyGain: 5, lunge: 1.3,
+    reach: 1.2, radius: 0.5, height: 1.3, cancelWindow: 8,
+    chain: { heavy: 'heavy' }, knockdown: false, hitstop: 4, clip: 'DASHSTRIKE', poseSet: 'LIGHT1',
+  }),
+  rush: a({ // forward + heavy: charging blow that pressures guards
+    id: 'rush', button: 'heavy', startup: 18, active: 5, recovery: 26,
+    damage: 105, hitstun: 30, blockstun: 20, knockback: 0.3, energyGain: 9, lunge: 1.7,
+    reach: 1.3, radius: 0.6, height: 1.2, cancelWindow: 0, guardDamage: 30,
+    chain: {}, knockdown: true, hitstop: 7, clip: 'RUSH', poseSet: 'HEAVY',
+  }),
+  axekick: a({ // forward + kick: overhead axe kick - slow, but hits crouching defenders
+    id: 'axekick', button: 'kick', startup: 15, active: 3, recovery: 24,
+    damage: 90, hitstun: 28, blockstun: 16, knockback: 0.15, energyGain: 7, lunge: 0.3,
+    reach: 1.15, radius: 0.5, height: 1.5, cancelWindow: 0, guardDamage: 20,
+    chain: {}, knockdown: false, hitstop: 6, clip: 'AXEKICK',
+  }),
+  retreatcut: a({ // back + light: a cut thrown while stepping away - a spacing poke
+    id: 'retreatcut', button: 'light', startup: 7, active: 3, recovery: 14,
+    damage: 35, hitstun: 20, blockstun: 10, knockback: 0.12, energyGain: 3, lunge: -0.45,
+    reach: 1.25, radius: 0.5, height: 1.3, cancelWindow: 0,
+    chain: {}, knockdown: false, hitstop: 3, clip: 'RETREATCUT', poseSet: 'LIGHT2',
+  }),
+  backkick: a({ // back + kick: pushes the opponent away while backing off
+    id: 'backkick', button: 'kick', startup: 10, active: 3, recovery: 16,
+    damage: 50, hitstun: 22, blockstun: 14, knockback: 0.35, energyGain: 4, lunge: -0.3,
+    reach: 1.3, radius: 0.4, height: 0.9, cancelWindow: 0,
+    chain: {}, knockdown: false, hitstop: 4, clip: 'BACKKICK',
+  }),
+  spinslash: a({ // sideways + heavy: wide spinning attack - the answer to an opponent circling you
+    id: 'spinslash', button: 'heavy', startup: 16, active: 6, recovery: 26,
+    damage: 95, hitstun: 28, blockstun: 16, knockback: 0.25, energyGain: 8, lunge: 0.2,
+    reach: 1.3, radius: 0.6, height: 1.2, cancelWindow: 0, shape: 'swing', arc: 300,
+    chain: {}, knockdown: true, hitstop: 6, clip: 'SPINSLASH',
+  }),
+  spinkick: a({ // sideways + kick: spinning kick, wide and fast
+    id: 'spinkick', button: 'kick', startup: 12, active: 5, recovery: 20,
+    damage: 75, hitstun: 24, blockstun: 14, knockback: 0.18, energyGain: 6, lunge: 0.15,
+    reach: 1.25, radius: 0.45, height: 0.9, cancelWindow: 0, shape: 'swing', arc: 240,
+    chain: {}, knockdown: false, hitstop: 5, clip: 'SPINKICK',
+  }),
+  sprintstrike: a({ // sprint + light: running strike that covers a lot of ground
+    id: 'sprintstrike', button: 'light', startup: 12, active: 4, recovery: 22,
+    damage: 70, hitstun: 26, blockstun: 14, knockback: 0.25, energyGain: 6, lunge: 2.0,
+    reach: 1.3, radius: 0.55, height: 1.2, cancelWindow: 0,
+    chain: {}, knockdown: false, hitstop: 5, clip: 'SPRINTSTRIKE', poseSet: 'LIGHT1',
+  }),
+
+  // ------------------------------------------------------------- more air moves (jump + direction + button)
+  divekick: a({ // forward + kick in the air: steep dive kick
+    id: 'divekick', button: 'kick', startup: 5, active: 7, recovery: 8,
+    damage: 65, hitstun: 24, blockstun: 14, knockback: 0.12, energyGain: 5, lunge: 0,
+    reach: 1.0, radius: 0.45, height: 0.15, cancelWindow: 0, landLag: 12,
+    chain: {}, knockdown: true, hitstop: 5, clip: 'DIVEKICK', air: true,
+  }),
+  airback: a({ // back + light in the air: retreating air cut
+    id: 'airback', button: 'light', startup: 6, active: 5, recovery: 9,
+    damage: 40, hitstun: 20, blockstun: 11, knockback: 0.1, energyGain: 4, lunge: 0,
+    reach: 1.15, radius: 0.5, height: 0.7, cancelWindow: 0, landLag: 8,
+    chain: {}, knockdown: false, hitstop: 3, clip: 'AIRBACK', poseSet: 'AIRLIGHT', air: true,
+  }),
+  airspin: a({ // sideways + heavy in the air: spinning air slash
+    id: 'airspin', button: 'heavy', startup: 9, active: 8, recovery: 12,
+    damage: 60, hitstun: 24, blockstun: 14, knockback: 0.15, energyGain: 6, lunge: 0,
+    reach: 1.2, radius: 0.55, height: 0.8, cancelWindow: 0, landLag: 12, shape: 'swing', arc: 270,
+    chain: {}, knockdown: false, hitstop: 5, clip: 'AIRSPIN', air: true,
+  }),
+
+  // ------------------------------------------------------------- extra shadow arts (direction + special)
+  special_f: a({ // forward + special: advancing art
+    id: 'special_f', button: 'special', startup: 14, active: 5, recovery: 24,
+    damage: 120, hitstun: 26, blockstun: 18, knockback: 0.25, energyGain: 0, lunge: 2.8,
+    reach: 1.4, radius: 0.6, height: 1.2, cancelWindow: 0, guardDamage: 22,
+    chain: {}, knockdown: true, hitstop: 7, clip: 'SPECIAL_F', poseSet: 'SPECIAL', cost: 40,
+  }),
+  special_b: a({ // back + special: evasive art that cuts as it retreats
+    id: 'special_b', button: 'special', startup: 10, active: 6, recovery: 22,
+    damage: 100, hitstun: 26, blockstun: 16, knockback: 0.25, energyGain: 0, lunge: -1.2,
+    reach: 2.0, radius: 0.5, height: 1.2, cancelWindow: 0, guardDamage: 18,
+    chain: {}, knockdown: true, hitstop: 6, clip: 'SPECIAL_B', poseSet: 'SPECIAL', cost: 40,
+  }),
+  special_low: a({ // crouch + special: low art that must be crouch-guarded
+    id: 'special_low', button: 'special', startup: 18, active: 6, recovery: 30,
+    damage: 110, hitstun: 28, blockstun: 18, knockback: 0.25, energyGain: 0, lunge: 1.4,
+    reach: 1.7, radius: 0.55, height: 0.25, cancelWindow: 0, level: 'low', guardDamage: 24,
+    chain: {}, knockdown: true, hitstop: 7, clip: 'SPECIAL_LOW', poseSet: 'SWEEP', cost: 40,
+  }),
+
   // ------------------------------------------------------------- shadow abilities
   // Shadow Slash: dashing slash, blockable and dodgeable (sidestep i-frames beat it).
   special: a({
@@ -129,6 +221,8 @@ export const RONIN: CharacterStats = {
 
 
 export interface AttackMods {
+  /** Character-only moves (new ids): chain finishers and signature techniques. */
+  extra?: Record<string, AttackData>;
   startupAdd?: number; recoveryAdd?: number; damage?: number; reach?: number; lunge?: number; hitstopAdd?: number;
   /** Per-attack overrides applied last (ability tuning, hit shapes, character-specific chains). */
   overrides?: Record<string, Partial<AttackData>>;
@@ -151,6 +245,12 @@ export function buildAttacks(m: AttackMods): Record<string, AttackData> {
       hitstop: a.hitstop + (m.hitstopAdd ?? 0),
       ...(m.overrides?.[id] ?? {}),
     };
+  }
+  for (const [id, a] of Object.entries(m.extra ?? {})) out[id] = { ...a, chain: { ...a.chain } }; // character-only moves are used exactly as authored
+  // a chain-only move that no chain of this character reaches (e.g. a 3rd/4th light for a 2-hit fighter) does not exist for them
+  for (const id of ['light3', 'light4']) {
+    const referenced = Object.values(out).some((x) => Object.values(x.chain).includes(id));
+    if (!referenced) delete out[id];
   }
   return out;
 }

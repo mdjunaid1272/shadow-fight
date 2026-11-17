@@ -35,7 +35,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); o
 .tutorial i { display: block; height: 5px; background: #05060b; margin-top: 8px; } .tutorial u { display: block; height: 100%; background: var(--amber); text-decoration: none; transition: width .15s linear; }
 .movelist .panel { width: min(780px, 94vw); box-sizing: border-box; max-width: min(780px, 94vw); max-height: 88vh; overflow: auto; background: rgba(10,14,28,.97); border: 2px solid #3b4a78; padding: 16px 20px; }
 .movelist h2 { margin: 0 0 8px; color: var(--amber); letter-spacing: .14em; } .movelist h3 { margin: 12px 0 4px; color: #9aa6c8; letter-spacing: .16em; }
-.movelist table.moves { width: 100%; table-layout: auto; white-space: nowrap; border-collapse: collapse; font-size: 13px; } .movelist th { text-align: left; color: #7f89a8; letter-spacing: .1em; border-bottom: 1px solid #28304a; padding: 3px 6px; }
+.movelist table.moves { width: 100%; table-layout: auto; white-space: nowrap; border-collapse: collapse; font-size: 13px; } .movelist tr.sec td { color: var(--amber); letter-spacing: .16em; font-size: 12px; padding-top: 10px; border-bottom: 1px solid #3b4a78; }
+.movelist th { text-align: left; color: #7f89a8; letter-spacing: .1em; border-bottom: 1px solid #28304a; padding: 3px 6px; }
 .movelist td { padding: 3px 6px; border-bottom: 1px solid #141b30; color: #dfe5f6; }
 .movelist ul.combos { list-style: none; margin: 0; padding: 0; columns: 2; font-size: 13px; } .movelist .combos li { padding: 2px 0; } .movelist .combos span { color: #9aa6c8; }
 .movelist .note { color: #7f89a8; font-size: 12px; margin: 10px 0; }

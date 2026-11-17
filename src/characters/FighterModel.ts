@@ -13,6 +13,13 @@ const std = (color: number, rough = 0.7, metal = 0.05) => new THREE.MeshStandard
  * Real GLB models can replace this by providing the same joint map
  * (see `joints`) - gameplay code only touches Fighter + FighterModel API.
  */
+/**
+ * A rigged GLB is authored in its own stance (the Titan model stands in a wide crouch), so the procedural pose is applied as a
+ * damped delta on top of it: leg bends and the root drop are reduced so the stance does not stack into a deep squat.
+ */
+const GLB_POSE_SCALE: Partial<Record<Joint, number>> = { hpL: 0.45, hpR: 0.45, knL: 0.4, knR: 0.4, hips: 0.7 };
+const GLB_ROOTY_SCALE = 0.4;
+
 export class FighterModel {
   readonly root = new THREE.Group();
   private tilt = new THREE.Group();
@@ -194,6 +201,14 @@ export class FighterModel {
     this.root.rotation.y = Math.atan2(f.fx, f.fz);
     let clip = FighterModel.clipFor(f);
     if (clip === 'WALK' && backward) clip = 'BACKWARD';
+    if (this.avatar && !this.avatar.hasClips) { // rigged GLB without clips: drive its bones from the procedural poses
+      const frame = f.state === 'attack' ? f.attackFrame : f.stateFrame;
+      const pose = this.anim.update(frozen ? 0 : dt, clip, frame);
+      this.avatar.applyPose(pose, GLB_POSE_SCALE);
+      this.tilt.position.y = pose[IDX_ROOTY] * GLB_ROOTY_SCALE; this.tilt.position.z = pose[IDX_ROOTZ]; this.tilt.rotation.x = pose[IDX_TILT];
+      this.trail.update(this.bladeBase, this.bladeTip, false);
+      return;
+    }
     if (this.avatar) { // GLB path: the AnimationMixer drives the skeleton
       this.tilt.position.set(0, 0, 0); this.tilt.rotation.x = 0;
       this.avatar.play(clip === 'DODGE' ? 'DODGE_LEFT' : clip); this.avatar.update(frozen ? 0 : dt); return;

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { JOINTS, type Joint } from './AnimationController';
+import { JOINTS, type Joint, type Pose } from './AnimationController';
 
 /**
  * Wraps a loaded GLB as a drop-in visual for a fighter. Gameplay never touches
@@ -58,6 +58,9 @@ export class GltfAvatar {
   private current: THREE.AnimationAction | null = null;
   private currentName = '';
   private warned = new Set<string>();
+  /** Rest-pose rotations per mapped joint, used to drive the skeleton from the game's procedural poses (see applyPose). */
+  private rest: Partial<Record<Joint, { rbq: THREE.Quaternion; rpInv: THREE.Quaternion }>> = {};
+  private qE = new THREE.Quaternion(); private eE = new THREE.Euler();
 
   constructor(gltf: GLTF) {
     this.root = gltf.scene;
@@ -70,6 +73,31 @@ export class GltfAvatar {
     for (const j of JOINTS) for (const alias of BONE_ALIASES[j]) { const b = byName.get(norm(alias)); if (b) { this.bones[j] = b; break; } }
     for (const a of HAND_R) { const b = byName.get(norm(a)); if (b) { this.handSocket = b; break; } }
     for (const c of gltf.animations) this.clips.set(normalizeClipName(c.name), c);
+    this.root.updateMatrixWorld(true);
+    for (const j of JOINTS) {
+      const b = this.bones[j]; if (!b) continue;
+      const rbq = b.getWorldQuaternion(new THREE.Quaternion());
+      const rpInv = (b.parent ? b.parent.getWorldQuaternion(new THREE.Quaternion()) : new THREE.Quaternion()).invert();
+      this.rest[j] = { rbq, rpInv };
+    }
+  }
+
+  /** True when the GLB ships its own animation clips. Without any, the avatar is driven by applyPose() instead. */
+  get hasClips(): boolean { return this.clips.size > 0; }
+
+  /**
+   * Pose-driven mode (GLB has a skeleton but no clips): apply the game's procedural pose to the bones.
+   * A joint rotation E is expressed in the model-aligned frame, exactly like the procedural rig, so the bone's local
+   * rotation is  parentRest^-1 * E * boneRest  (independent of the parent's current pose).
+   */
+  applyPose(p: Pose, scale: Partial<Record<Joint, number>> = {}): void {
+    JOINTS.forEach((j, i) => {
+      const b = this.bones[j], r = this.rest[j]; if (!b || !r) return;
+      const k = scale[j] ?? 1;
+      this.eE.set(p[i * 3] * k, p[i * 3 + 1] * k, p[i * 3 + 2] * k);
+      this.qE.setFromEuler(this.eE);
+      b.quaternion.copy(r.rpInv).multiply(this.qE).multiply(r.rbq);
+    });
   }
 
   static fromGltf(gltf: GLTF): GltfAvatar { return new GltfAvatar(gltf); }

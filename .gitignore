@@ -22,3 +22,7 @@ android/capacitor-cordova-android-plugins/
 *.aab
 *.keystore
 *.jks
+
+# Blender sources (large; kept in the shared Drive folder)
+*.blend
+*.blend1

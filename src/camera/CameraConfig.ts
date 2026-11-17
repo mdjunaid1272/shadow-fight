@@ -102,8 +102,8 @@ export const CALM_TUNING: CameraTuning = {
 export const HYBRID_TUNING: CameraTuning = {
   actionLead: 0, depthYaw: 1, kick: 0.4, shake: 0.35, sway: 0, speedFov: 0, follow: 1, lookLag: 1, frameGuard: 1,
   baseDistance: 12.4, distScale: 1.15, closeFactor: 0.92, minDistance: 11.4, maxDistance: 32, zoomHyst: 0.4, baseFov: 34, pitch: 11, yaw: 11, lookHeight: 1.12,
-  followX: 0.34, followY: 0.45, followZ: 0.42, rotSmooth: 1.1, zoomIn: 1.1, zoomOut: 0.45,
-  deadZone: 0.32, maxDepthYaw: 12, yawHysteresis: 6, maxYawRate: 12, yawFilter: 0.5,
+  followX: 0.26, followY: 0.36, followZ: 0.34, rotSmooth: 0.85, zoomIn: 0.85, zoomOut: 0.36,
+  deadZone: 0.2, maxDepthYaw: 12, yawHysteresis: 5, maxYawRate: 16, yawFilter: 0.42,
   impact: 1, cinematic: 1,
 };
 

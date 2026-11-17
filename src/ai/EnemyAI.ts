@@ -293,6 +293,8 @@ export class EnemyAI {
   }
 
   private act(id: string): Act {
+    const sm = /^(?:iron|wind|shadow)_([abcd])$/.exec(id); // fighting-style moves: STYLE button, direction picks which
+    if (sm) return { id, btn: 'style', ...(sm[1] === 'b' ? { fwd: 1 } : sm[1] === 'c' ? { fwd: -1 } : sm[1] === 'd' ? { crouch: true } : {}) };
     switch (id) {
       case 'lowkick': return { id, btn: 'kick', crouch: true };
       case 'sweep': return { id, btn: 'heavy', crouch: true };
@@ -362,6 +364,15 @@ export class EnemyAI {
     if (me.energy >= (A.special_f?.cost ?? 40) && dist > 1.8 && dist < 3.3 && usable('special_f')) scores.push(['special_f', 0.4 * ag]);
     if (me.energy >= (A.special_b?.cost ?? 40) && dist < 1.7 && usable('special_b')) scores.push(['special_b', 0.2 + 0.3 * this.beh.defense]);
     if (me.energy >= (A.special_low?.cost ?? 40) && dist > 1.2 && dist < 2.4 && usable('special_low')) scores.push(['special_low', (0.15 + (oppGuarding && !oppCrouch ? 0.4 : 0)) * ag]);
+    // fighting-style moves (cost shadow energy): a = poke, b = closer, c = escape, d = low
+    const sty = me.stats.style;
+    if (sty && sty !== 'classic') {
+      const m = (k: string) => `${sty}_${k}`;
+      if (usable(m('a'))) scores.push([m('a'), (0.25 + (oppGuarding ? 0.2 : 0) + (sty === 'shadow' && dist > 2.4 ? 0.5 : 0)) * ag]);
+      if (usable(m('b'))) scores.push([m('b'), (dist > 1.6 ? 0.4 : 0.12) * ag]);
+      if (dist < 1.6 && usable(m('c'))) scores.push([m('c'), 0.15 + 0.3 * this.beh.defense]);
+      if (usable(m('d'))) scores.push([m('d'), (0.12 + (oppGuarding && !oppCrouch ? 0.4 : 0)) * ag]);
+    }
     // shadow abilities: only when the meter allows (no free energy), at their own useful range
     if (me.energy >= (A.ultimate?.cost ?? 100) && dist > 1.2 && dist < 3.6) scores.push(['ultimate', 1.4 * ag]);
     else if (me.energy >= (A.special?.cost ?? 40) && dist > 1.7 && dist < 3.3) scores.push(['special', (0.55 + (this.behavior === 'BOSS' ? 0.2 * (this.phase - 1) : 0)) * ag]);

@@ -1,3 +1,4 @@
+import { STYLES, STYLE_IDS, type StyleId } from '../combat/Styles';
 import type { Difficulty } from '../ai/EnemyAI';
 import { CHAPTERS, STORY, type ModeId } from '../core/Modes';
 import { CHARACTERS, type CharacterDef } from '../characters/CharacterData';
@@ -346,6 +347,14 @@ export class Screens {
       b.onclick = () => { st.quality = v; seg.querySelectorAll('button').forEach((x) => x.classList.remove('sel')); b.classList.add('sel'); c.onChange(); }; seg.append(b);
     }
     q.append(seg); sc.append(q);
+    // fighting style: a playstyle applied to whichever fighter you pick (CLASSIC = unchanged)
+    const fsEl = el('div', 'slider', '<span>FIGHTING STYLE</span>'); const fseg = el('div', 'seg'); const fnote = el('div', 'note');
+    const showStyle = (id: string) => { const s = STYLES[id as StyleId]; fnote.innerHTML = `<b>${s.name}</b> - ${s.tagline}<br>${s.traits.join(' &middot; ')}${id === 'classic' ? '' : '<br>Adds 4 signature moves on the STYLE button (B): B, forward + B, back + B, crouch + B.'}`; };
+    for (const sid of STYLE_IDS) {
+      const b = el('button', st.fightingStyle === sid ? 'sel' : '', STYLES[sid].name);
+      b.onclick = () => { st.fightingStyle = sid; fseg.querySelectorAll('button').forEach((x) => x.classList.remove('sel')); b.classList.add('sel'); showStyle(sid); c.onChange(); }; fseg.append(b);
+    }
+    fsEl.append(fseg); sc.append(fsEl); showStyle(st.fightingStyle); sc.append(fnote);
     const cs = el('div', 'slider', '<span>CAMERA STYLE</span>'); const cseg = el('div', 'seg');
     for (const [v, label] of [['hybrid', 'HYBRID'], ['calm', 'CALM'], ['dynamic', 'DYNAMIC']] as const) {
       const b = el('button', st.cameraStyle === v ? 'sel' : '', label);

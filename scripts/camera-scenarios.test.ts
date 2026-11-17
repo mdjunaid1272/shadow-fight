@@ -284,5 +284,20 @@ const dist = (c: FightingCamera) => c.debugInfo().distance;
   c.zoomPulse(-5, 0.5); let m2 = rest; for (let i = 0; i < 60; i++) { c.update(a, b, DT); m2 = Math.min(m2, dist(c)); }
   ok(m2 > rest * 0.8, 'pulse strength is clamped (never more than ~15% in)');
 }
+// ------------------------------------------------------------------------------------------------ camera roll (style flourishes)
+{
+  const a = fighter(-2.3), b = fighter(2.3), c = mk();
+  c.snap(a, b); settle(c, a, b);
+  const tilt = () => { c.camera.updateMatrixWorld(true); return Math.abs(new THREE.Vector3(1, 0, 0).applyQuaternion(c.camera.quaternion).y); }; // 0 = level horizon
+  const level = tilt(); let peak = 0, framed = true;
+  c.roll(5, 0.5); for (let i = 0; i < 60; i++) { c.update(a, b, DT); peak = Math.max(peak, tilt()); framed = framed && onScreen(c, [a, b]); }
+  ok(level < 0.005 && peak > 0.05 && peak < 0.11, `roll: the horizon tilts by about 5 deg during a flourish (${(Math.asin(peak) / D2R).toFixed(1)} deg) and is level normally`);
+  ok(framed, 'roll: both fighters stay on screen while the camera is tilted');
+  settle(c, a, b, 120); ok(tilt() < 0.005, 'roll: the camera returns to a level horizon afterwards');
+  c.roll(40, 0.5); let big = 0; for (let i = 0; i < 40; i++) { c.update(a, b, DT); big = Math.max(big, tilt()); }
+  ok(big < 0.11, `roll: a huge request is clamped (${(Math.asin(big) / D2R).toFixed(1)} deg, never more than about 6)`);
+  const d = mk(16 / 9); d.tuning.cinematic = 0; d.snap(a, b); settle(d, a, b); d.roll(5, 0.5); let off = 0; for (let i = 0; i < 40; i++) { d.update(a, b, DT); d.camera.updateMatrixWorld(true); off = Math.max(off, Math.abs(new THREE.Vector3(1, 0, 0).applyQuaternion(d.camera.quaternion).y)); }
+  ok(off < 0.02, 'roll: with cinematic moments turned off the camera never tilts');
+}
 console.log(fails ? `\n${fails} FAILED` : '\nALL CAMERA SCENARIOS PASSED');
 process.exit(fails ? 1 : 0);

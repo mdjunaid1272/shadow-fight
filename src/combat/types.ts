@@ -1,4 +1,4 @@
-export type Button = 'light' | 'heavy' | 'kick' | 'special' | 'ultimate' | 'grab';
+export type Button = 'light' | 'heavy' | 'kick' | 'special' | 'ultimate' | 'grab' | 'style';
 
 export type FighterState =
   | 'idle' | 'walk' | 'jump' | 'block' | 'crouch' | 'dodge' | 'attack' | 'grabbed'
@@ -77,6 +77,10 @@ export interface AttackData {
   poseSet?: string;
   /** Frames of landing lag after an air attack touches down (halved if it connected). */
   landLag?: number;
+  /** Super armour: while this move is in its startup/active frames it shrugs off hits of up to ARMOR_MAX damage (taking half) and keeps going. Grabs and lethal hits still go through. */
+  armor?: boolean;
+  /** Phasing move: the lunge may carry the fighter through the opponent (cross-up). */
+  phase?: boolean;
   /** Multi-hit move: the active window is split into this many separate hits (each is blocked / scaled on its own). */
   hits?: number;
   /** thrust: where the shaft starts (m from body centre; default 0.35). */
@@ -100,6 +104,16 @@ export interface CharacterStats {
   /** Jump height / sidestep speed multipliers (default 1): part of each fighter's movement identity. */
   jump?: number;
   dodgeSpeed?: number;
+  /** Fighting style (see Styles.ts): 'classic' | 'iron' | 'wind' | 'shadow'. Decides what the STYLE button does. */
+  style?: string;
+  /** Share of guard damage taken when blocking (1 = normal). */
+  guardResist?: number;
+  /** Multiplier on shadow energy gained. */
+  energyMult?: number;
+  /** Can jump a second time in the air. */
+  doubleJump?: boolean;
+  /** Extra frames of invulnerability on a sidestep. */
+  dodgeBonus?: number;
   attacks: Record<string, AttackData>;
 }
 

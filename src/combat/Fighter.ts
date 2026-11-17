@@ -89,6 +89,8 @@ export class Fighter {
   teched = false;
   /** The block that put this fighter in blockstun was a crouching guard (decides whether LOW attacks are blocked). */
   blockCrouched = false;
+  /** The double jump has been used in this airborne spell. */
+  private usedDouble = false;
   /** Crouch input held this frame. */
   private crouchHeld = false;
   private dodgeCooldown = 0;
@@ -130,7 +132,7 @@ export class Fighter {
     return 'recovery';
   }
 
-  addEnergy(n: number): void { this.energy = Math.min(100, this.energy + n); }
+  addEnergy(n: number): void { this.energy = Math.min(100, this.energy + n * (this.stats.energyMult ?? 1)); }
 
   setState(s: FighterState): void {
     this.state = s;
@@ -249,7 +251,7 @@ export class Fighter {
     }
     const side = Math.max(-1, Math.min(1, inp.side ?? 0));
     if (inp.jump) {
-      this.setState('jump'); this.vy = JUMP_VY * (this.stats.jump ?? 1);
+      this.setState('jump'); this.usedDouble = false; this.vy = JUMP_VY * (this.stats.jump ?? 1);
       const t = this.airTarget(inp.fwd, side);
       this.jvx = t.x; this.jvz = t.z; return;
     }
@@ -316,6 +318,10 @@ export class Fighter {
         if (f && has('special_f')) return 'special_f';                    // forward + special: advancing shadow art
         if (b && has('special_b')) return 'special_b';                    // back + special: evasive shadow art
         return 'special';
+      case 'style': { // the fighting style's signature moves: B, forward + B, back + B, crouch + B
+        const st = this.stats.style; if (!st || st === 'classic') return 'style_none';
+        return `${st}_${crouch ? 'd' : f ? 'b' : b ? 'c' : 'a'}`;
+      }
       default: return btn; // ultimate, grab
     }
   }
@@ -367,7 +373,7 @@ export class Fighter {
     // Lunge forward over startup + active, never through the opponent.
     if (this.attackFrame <= a.startup + a.active) {
       const gap = Math.hypot(opp.x - this.x, opp.z - this.z);
-      const step = Math.min(a.lunge / (a.startup + a.active), Math.max(0, gap - BODY_RADIUS * 2 - 0.05));
+      const step = a.phase ? a.lunge / (a.startup + a.active) : Math.min(a.lunge / (a.startup + a.active), Math.max(0, gap - BODY_RADIUS * 2 - 0.05));
       this.x += this.fx * step; this.z += this.fz * step;
     }
     // Multi-hit moves: re-arm the hit at even intervals through the active frames
@@ -385,6 +391,10 @@ export class Fighter {
   }
 
   private stepJump(inp: FighterInput): void {
+    if (inp.jump && this.stats.doubleJump && !this.usedDouble) { // double jump (Wind style): a second, slightly lower hop, steerable
+      this.usedDouble = true; this.vy = JUMP_VY * (this.stats.jump ?? 1) * 0.85;
+      const t = this.airTarget(inp.fwd, Math.max(-1, Math.min(1, inp.side ?? 0))); this.jvx = t.x; this.jvz = t.z;
+    }
     const b = this.buffered?.button;
     if (b === 'light' || b === 'heavy' || b === 'kick') { this.startAttack(this.airAttackFor(b, this.buffered!.fwd, this.buffered!.side)); return; }
     // limited air control: the held direction steers the jump (6% of the gap per frame), it never overrides it outright
@@ -397,7 +407,7 @@ export class Fighter {
 
   private stepDodge(): void {
     const f = this.stateFrame;
-    this.invulnerable = f >= 3 && f <= 16;
+    this.invulnerable = f >= 3 && f <= 16 + (this.stats.dodgeBonus ?? 0);
     if (f <= 14) this.z += this.dodgeDir * 0.13 * (this.stats.dodgeSpeed ?? 1) * (1 - f / 18);
     if (f >= DODGE_FRAMES) this.setState('idle');
   }
@@ -466,7 +476,7 @@ export class Fighter {
    */
   takeBlock(att: AttackData, chip: number, dirx: number, dirz: number): boolean {
     this.health = Math.max(1, this.health - chip);
-    this.guard += att.guardDamage ?? att.damage * 0.15;
+    this.guard += (att.guardDamage ?? att.damage * 0.15) * (this.stats.guardResist ?? 1);
     this.guardDelay = GUARD_REGEN_DELAY;
     this.parryWindow = 0;
     this.kx = dirx * att.knockback * 0.6; this.kz = dirz * att.knockback * 0.6;
@@ -479,6 +489,9 @@ export class Fighter {
     this.stunFrames = att.blockstun;
     return false;
   }
+
+  /** A hit absorbed by super armour: damage is taken, but the fighter keeps attacking. */
+  takeArmorHit(damage: number): void { this.health = Math.max(1, this.health - damage); }
 
   /** The defender parried: no damage, free to act at once, and light/heavy now performs the counter attack for a short time. */
   parrySuccess(): void {

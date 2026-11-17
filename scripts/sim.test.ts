@@ -4,6 +4,7 @@ import { Fighter } from '../src/combat/Fighter';
 import { emptyInput, type AttackData, type Button, type FighterInput } from '../src/combat/types';
 import { EnemyAI, type Behavior, type Difficulty } from '../src/ai/EnemyAI';
 import { CHARACTERS, getCharacter } from '../src/characters/CharacterData';
+import { applyStyle, normalizeStyle, styleForOpponent, type StyleId } from '../src/combat/Styles';
 import { Tutorial, TUTORIAL_STEPS } from '../src/core/Tutorial';
 import { buildMoveList, comboRoutes, onBlockAdvantage, onHitAdvantage } from '../src/UI/MoveList';
 
@@ -890,6 +891,127 @@ import { ModeManager, STORY, CHAPTERS } from '../src/core/Modes';
   for (const c of CHARACTERS) {
     const html = buildMoveList(c), n = Object.keys(c.stats.attacks).filter((k) => k !== 'light4' || c.stats.attacks.light3?.chain.light).length;
     ok(html.includes('DIRECTION MOVES') && html.includes('forward + J') && html.includes('SHADOW ARTS') && html.includes('CHAIN FINISHERS') && /\d+ MOVES/.test(html), `MS8 ${c.id}: the move list is grouped and shows the direction inputs (${html.match(/(\d+) MOVES/)?.[1]} of ${n} listed)`);
+  }
+}
+
+// ================================================================ FIGHTING STYLES: classic / iron / wind / shadow
+{
+  const idle = emptyInput;
+  const chars = ['ronin', 'shinobi', 'titan', 'akira'];
+  const styled = (ch: string, st: StyleId) => applyStyle(getCharacter(ch).stats, st);
+  const mk = (ch: string, st: StyleId, sep = 6, foeCh = 'ronin', foeSt: StyleId = 'classic') => {
+    const f = new Fighter(styled(ch, st), bounds), foe = new Fighter(styled(foeCh, foeSt), bounds);
+    f.reset(-sep / 2, 0, 1); foe.reset(sep / 2, 0, -1); f.energy = 100; return { f, foe, cm: new CombatManager([f, foe]) };
+  };
+
+  // ---- ST1: each style changes the character in the way it promises; classic changes nothing
+  { const base = getCharacter('ronin').stats, c = styled('ronin', 'classic'), i = styled('ronin', 'iron'), w = styled('ronin', 'wind'), s = styled('ronin', 'shadow');
+    ok(c.maxHealth === base.maxHealth && c.walkSpeed === base.walkSpeed && c.attacks.heavy.damage === base.attacks.heavy.damage && !c.attacks.heavy.armor && !c.attacks.iron_a, 'ST1 CLASSIC leaves the fighter exactly as designed');
+    ok(i.maxHealth > base.maxHealth && i.walkSpeed < base.walkSpeed && i.attacks.heavy.armor === true && (i.guardResist ?? 1) < 1 && i.attacks.heavy.damage > base.attacks.heavy.damage && i.attacks.light1.startup > base.attacks.light1.startup, 'ST1 IRON: a bit more health, sturdier guard, armoured heavies, harder heavy hits - but slower walking and jabs');
+    ok(w.doubleJump === true && (w.jump ?? 1) > 1 && (w.dodgeBonus ?? 0) > 0 && w.attacks.airlight.damage > base.attacks.airlight.damage && w.attacks.light1.damage < base.attacks.light1.damage && w.maxHealth < base.maxHealth, 'ST1 WIND: double jump, higher jump, safer sidestep, stronger air attacks - but weaker lights and a little less health');
+    ok((s.energyMult ?? 1) > 1.4 && s.attacks.special.cost! < base.attacks.special.cost! && s.attacks.special.damage > base.attacks.special.damage && s.attacks.ultimate.cost === 100, 'ST1 SHADOW: faster energy, cheaper and stronger shadow arts (ultimate unchanged)');
+    ok(['iron', 'wind', 'shadow'].every((st) => ['a', 'b', 'c', 'd'].every((k) => !!styled('ronin', st as StyleId).attacks[`${st}_${k}`])) && !styled('ronin', 'iron').attacks.wind_a, 'ST1 each style adds exactly its own four signature moves');
+    ok(normalizeStyle('banana') === 'classic' && normalizeStyle('iron') === 'iron' && normalizeStyle(undefined) === 'classic', 'ST1 unknown style names fall back to classic');
+  }
+  // ---- ST2: every style move starts from the STYLE button + direction, for every character
+  { const DIR: Record<string, { fwd?: number; crouch?: boolean }> = { a: {}, b: { fwd: 1 }, c: { fwd: -1 }, d: { crouch: true } };
+    for (const st of ['iron', 'wind', 'shadow'] as StyleId[]) {
+      const bad: string[] = [];
+      for (const ch of chars) for (const k of ['a', 'b', 'c', 'd']) {
+        const { f, cm } = mk(ch, st); cm.step([{ ...emptyInput(), fwd: DIR[k].fwd ?? 0, crouch: !!DIR[k].crouch, pressed: ['style'] }, idle()]);
+        if (f.attack?.id !== `${st}_${k}`) bad.push(`${ch}:${k}->${f.attack?.id}`);
+      }
+      ok(bad.length === 0, `ST2 ${st}: all 16 style moves (4 per character) start from B / fwd+B / back+B / crouch+B${bad.length ? ' (wrong: ' + bad.join(', ') + ')' : ''}`);
+    }
+    const { f, cm } = mk('ronin', 'classic'); cm.step([{ ...emptyInput(), pressed: ['style'] }, idle()]); ok(f.state !== 'attack', 'ST2 CLASSIC has no style moves: the button does nothing');
+    const lo = mk('ronin', 'iron'); lo.f.energy = 5; lo.cm.step([{ ...emptyInput(), pressed: ['style'] }, idle()]); ok(lo.f.state !== 'attack', 'ST2 style moves cost shadow energy and need it');
+  }
+  // ---- ST3: every style move can connect; Shadow Bolt really outranges everything, Phase Rush passes through
+  { const ids = ['a', 'b', 'c', 'd']; const DIR: Record<string, { fwd?: number; crouch?: boolean }> = { a: {}, b: { fwd: 1 }, c: { fwd: -1 }, d: { crouch: true } };
+    for (const st of ['iron', 'wind', 'shadow'] as StyleId[]) for (const ch of chars) {
+      const duds: string[] = []; let far = 0;
+      for (const k of ids) {
+        let connected = false;
+        for (let d = 1.0; d <= 4.2; d += 0.2) {
+          const { f, foe, cm } = mk(ch, st, d); let hit = false; cm.events.on('hit', (h) => { if (h.attacker === 0) hit = true; });
+          cm.step([{ ...emptyInput(), fwd: DIR[k].fwd ?? 0, crouch: !!DIR[k].crouch, pressed: ['style'] }, idle()]); for (let i = 0; i < 80 && !hit; i++) { foe.health = foe.stats.maxHealth; cm.step([idle(), idle()]); }
+          if (hit) { connected = true; if (st === 'shadow' && k === 'a') far = Math.max(far, d); }
+        }
+        if (!connected) duds.push(k);
+      }
+      ok(duds.length === 0, `ST3 ${ch}/${st}: all four style moves connect at some range${duds.length ? ' (duds: ' + duds.join(',') + ')' : ''}`);
+      if (st === 'shadow') ok(far >= 3.0, `ST3 ${ch}/shadow: Shadow Bolt connects from ${far.toFixed(1)} m (a normal attack reaches about 2 m)`);
+    }
+    const { f, foe, cm } = mk('ronin', 'shadow', 1.6); const foeX = foe.x; cm.step([{ ...emptyInput(), fwd: 1, pressed: ['style'] }, idle()]); for (let i = 0; i < 60; i++) { foe.health = foe.stats.maxHealth; cm.step([idle(), idle()]); }
+    ok(f.x > foeX - 0.05, `ST3 Phase Rush carries the fighter through the opponent (ends at x ${f.x.toFixed(2)}, opponent started at ${foeX.toFixed(2)})`);
+  }
+  // ---- ST4: Iron's super armour shrugs off normal hits, but not heavy hits, throws or lethal blows
+  { const trial = (st: StyleId, foeBtn: Button, hp?: number) => {
+      const { f, foe, cm } = mk('ronin', st, 1.8); if (hp) f.health = hp; const start = f.health;
+      cm.step([{ ...emptyInput(), pressed: [st === 'iron' ? 'style' : 'heavy'] }, idle()]);   // iron_a / a normal heavy: slow startup
+      for (let i = 0; i < 5; i++) cm.step([idle(), idle()]);
+      cm.step([idle(), press(foeBtn)]); let still = true, id = ''; for (let i = 0; i < 16; i++) { cm.step([idle(), idle()]); id = f.attack?.id ?? id; if (f.state !== 'attack') still = false; }
+      return { still, lost: start - f.health, id, f };
+    };
+    const arm = trial('iron', 'light'), plain = trial('classic', 'light');
+    ok(arm.still && arm.lost > 0 && arm.lost <= 30, `ST4 an armoured Iron move keeps going through a light hit and takes only part of the damage (lost ${arm.lost} of 40)`);
+    ok(!plain.still, 'ST4 the same hit interrupts a normal heavy (control)');
+    const heavyHit = trial('iron', 'heavy'); ok(!heavyHit.still, 'ST4 a heavy hit (120 damage) breaks the armour');
+    const lethal = trial('iron', 'light', 15); ok(!lethal.still, 'ST4 armour never saves a fighter from a lethal hit');
+    const { f, foe, cm } = mk('ronin', 'iron', 1.1); cm.step([{ ...emptyInput(), pressed: ['style'] }, idle()]); for (let i = 0; i < 4; i++) cm.step([idle(), idle()]); foe.energy = 0; cm.step([idle(), press('grab')]);
+    for (let i = 0; i < 16; i++) cm.step([idle(), idle()]); ok(f.state === 'grabbed' || f.state === 'knockdown' || f.state === 'hitstun', `ST4 throws ignore armour (${f.state})`);
+  }
+  // ---- ST5: only Wind can double jump, and only once per jump
+  { const peak = (st: StyleId, presses: number) => { const { f, cm } = mk('ronin', st); let y = 0; cm.step([{ ...emptyInput(), jump: true }, idle()]); let n = 0;
+      for (let i = 0; i < 90; i++) { const jump = n < presses && i === 12 + n * 10; if (jump) n++; cm.step([{ ...emptyInput(), jump }, idle()]); y = Math.max(y, f.y); } return y; };
+    const single = peak('wind', 0), dbl = peak('wind', 1), triple = peak('wind', 2), classicDbl = peak('classic', 1);
+    ok(dbl > single + 0.35, `ST5 Wind's second jump reaches higher (${single.toFixed(2)} m -> ${dbl.toFixed(2)} m)`);
+    ok(Math.abs(triple - dbl) < 0.05, 'ST5 there is no third jump');
+    ok(Math.abs(classicDbl - peak('classic', 0)) < 0.05, 'ST5 other styles cannot double jump');
+  }
+  // ---- ST6: Shadow fills the meter faster and its arts cost less; Iron's guard lasts longer
+  { const gain = (st: StyleId) => { const { f, foe, cm } = mk('ronin', st, 1.8); f.energy = 0; cm.step([press('light'), idle()]); for (let i = 0; i < 30; i++) { foe.health = 1000; cm.step([idle(), idle()]); } return f.energy; };
+    ok(gain('shadow') > gain('classic') * 1.25, `ST6 Shadow gains energy faster (${gain('shadow').toFixed(1)} vs ${gain('classic').toFixed(1)} from one hit)`);
+    const sp = mk('ronin', 'shadow'); sp.f.energy = 30; sp.cm.step([{ ...emptyInput(), pressed: ['special'] }, idle()]); const cl = mk('ronin', 'classic'); cl.f.energy = 30; cl.cm.step([{ ...emptyInput(), pressed: ['special'] }, idle()]);
+    ok(sp.f.attack?.id === 'special' && cl.f.attack?.id !== 'special', 'ST6 a Shadow fighter can use their special at 30 energy; a Classic one cannot');
+    const breakAfter = (st: StyleId) => { const { f, foe, cm } = mk('ronin', st, 1.8, 'ronin', 'classic'); let broke = 0; const blk = { ...emptyInput(), block: true }; // the defender is the "foe" fighter, styled
+      const d = new Fighter(styled('ronin', st), bounds), a = new Fighter(styled('ronin', 'classic'), bounds); d.reset(0.9, 0, -1); a.reset(-0.9, 0, 1); const m = new CombatManager([a, d]); m.events.on('guardBreak', () => { broke = broke || 1; });
+      for (let i = 0; i < 14; i++) m.step([idle(), blk]); let n = 0;
+      for (let k = 1; k <= 14 && !broke; k++) { a.reset(-0.9, 0, 1); d.x = 0.9; d.z = 0; m.step([press('heavy'), blk]); for (let i = 0; i < 42; i++) m.step([idle(), blk]); n = k; if (m.fighters[1].guardBroken) broke = 1; }
+      void f; void foe; void cm; return n; };
+    const nc = breakAfter('classic'), ni = breakAfter('iron');
+    ok(ni > nc, `ST6 Iron's guard survives more heavies before breaking (${ni} vs ${nc})`);
+  }
+  // ---- ST7: styles are balanced against each other (AI mirror matches, both sides, several seeds)
+  { const score: Record<string, number> = { classic: 0, iron: 0, wind: 0, shadow: 0 }, games: Record<string, number> = { classic: 0, iron: 0, wind: 0, shadow: 0 };
+    const sts: StyleId[] = ['classic', 'iron', 'wind', 'shadow'];
+    for (let i = 0; i < sts.length; i++) for (let j = i + 1; j < sts.length; j++) for (const ch of chars) for (const swap of [false, true]) for (const seed of [1, 2]) {
+      const sa = swap ? sts[j] : sts[i], sb = swap ? sts[i] : sts[j];
+      const a = new Fighter(styled(ch, sa), bounds), b = new Fighter(styled(ch, sb), bounds); a.reset(-0.9, 0, 1); b.reset(0.9, 0, -1);
+      const cm = new CombatManager([a, b]); const A = new EnemyAI('HARD', 'BALANCED', seed * 11, ch), B = new EnemyAI('HARD', 'BALANCED', seed * 17 + 3, ch); let ko = false; cm.events.on('ko', () => { ko = true; });
+      for (let f = 0; f < 3600 && !ko; f++) cm.step([A.think(a, b), B.think(b, a)]);
+      const fa = a.health / a.stats.maxHealth, fb = b.health / b.stats.maxHealth; const w = Math.abs(fa - fb) < 0.02 ? 0.5 : fa > fb ? 1 : 0;
+      score[sa] += w; score[sb] += 1 - w; games[sa]++; games[sb]++;
+    }
+    const share = sts.map((s) => `${s} ${(100 * score[s] / games[s]).toFixed(0)}%`).join('  ');
+    ok(sts.every((s) => { const r = score[s] / games[s]; return r >= 0.3 && r <= 0.7; }), `ST7 no style dominates (win share over ${games.classic} matches each: ${share})`);
+  }
+  // ---- ST8: the AI plays the styles (uses its style moves), and move list documents them
+  { const used = new Set<string>();
+    for (const st of ['iron', 'wind', 'shadow'] as StyleId[]) {
+      const ai = new EnemyAI('HARD', 'AGGRESSIVE', 5, 'ronin'); const me = new Fighter(styled('ronin', st), bounds), foe = new Fighter(styled('ronin', 'classic'), bounds); me.reset(0.9, 0, -1); foe.reset(-0.9, 0, 1);
+      const cm = new CombatManager([foe, me]);
+      for (let f = 0; f < 12000; f++) { foe.health = 1000; if (foe.state === 'defeat') foe.setState('idle'); if (f % 500 === 0) me.energy = 100; cm.step([f % 300 < 100 ? { ...emptyInput(), block: true } : idle(), ai.think(me, foe)]); }
+      for (const k of ['a', 'b', 'c', 'd']) if ((ai.stats[`${st}_${k}`] ?? 0) > 0) used.add(`${st}_${k}`);
+    }
+    ok(used.size >= 8, `ST8 the AI uses its style moves (${used.size} of 12 seen: ${[...used].join(', ')})`);
+    const def = { ...getCharacter('ronin'), stats: styled('ronin', 'wind') }; const html = buildMoveList(def);
+    ok(html.includes('STYLE MOVES') && html.includes('Cyclone Dash') && html.includes('WIND style') && !buildMoveList(getCharacter('ronin')).includes('STYLE MOVES'), 'ST8 the move list shows a styled fighter\'s style moves (and nothing for CLASSIC)');
+    ok(styleForOpponent('titan', 'DEFENSIVE') === 'iron' && styleForOpponent('shinobi', 'AGGRESSIVE') === 'wind' && styleForOpponent('ronin', 'TECHNICAL') === 'shadow' && styleForOpponent('titan', 'BOSS') === 'iron', 'ST8 opponents get a style that fits how they fight (bosses have their own)');
+  }
+  // ---- ST9: the saved style setting migrates safely
+  { const a = migrateProfile({ version: 3, settings: { fightingStyle: 'iron' } }), b = migrateProfile({ version: 3, settings: { fightingStyle: 'banana' } }), c = migrateProfile({ version: 2, settings: {} });
+    ok(a.settings.fightingStyle === 'iron' && b.settings.fightingStyle === 'classic' && c.settings.fightingStyle === 'classic', 'ST9 the fighting-style setting is kept, and unknown / missing values become CLASSIC');
   }
 }
 

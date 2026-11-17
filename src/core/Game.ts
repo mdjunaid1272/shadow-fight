@@ -18,6 +18,7 @@ import { isTouchDevice, TouchControls } from '../input/TouchControls';
 import { glowBoost, resolvePalette, type StoreItem } from '../progression/StoreData';
 import { SaveManager } from '../progression/SaveManager';
 import { HUD, type DummyMode } from '../UI/HUD';
+import { applyStyle, normalizeStyle, styleForOpponent, STYLES, STYLE_IDS, type StyleId } from '../combat/Styles';
 import { buildMoveList, onBlockAdvantage } from '../UI/MoveList';
 import { Tutorial, tutorialDone } from './Tutorial';
 import { Flow } from './Flow';
@@ -36,6 +37,8 @@ export interface StartOpts {
   startHealthFrac?: number;
   enemyName?: string; enemyPalette?: Partial<Palette>;
   boss?: boolean; modeTag: string; title?: string; subtitle?: string;
+  /** Fighting style of the opponent (default: derived from how it fights). */
+  enemyStyle?: StyleId;
 }
 
 export interface MatchSummary {
@@ -60,6 +63,8 @@ export class Game {
   private ai = new EnemyAI('NORMAL', 'BALANCED');
   private dummyAi = new EnemyAI('HARD', 'AGGRESSIVE');
   private dummyMode: DummyMode = 'idle';
+  /** The player's fighting style (from Settings; Training can try the others temporarily) and the opponent's. */
+  private playerStyle: StyleId = 'classic';
   private dummyBehavior: Behavior = 'BALANCED';
   private dummyDifficulty: Difficulty = 'HARD';
   private dummyTimer = 0;
@@ -130,6 +135,14 @@ export class Game {
     const rebuildDummyAi = () => { this.dummyAi = new EnemyAI(this.dummyDifficulty, this.dummyBehavior, undefined, this.defs[1]?.id); this.dummyAi.reset(); };
     this.hud.onDummyBehavior = (b) => { this.dummyBehavior = b as Behavior; rebuildDummyAi(); };
     this.hud.onDummyLevel = (l) => { this.dummyDifficulty = l as Difficulty; rebuildDummyAi(); };
+    this.hud.onMyStyle = () => {
+      if (!this.opts?.practice) return;
+      this.playerStyle = STYLE_IDS[(STYLE_IDS.indexOf(this.playerStyle) + 1) % STYLE_IDS.length];
+      this.setupFighters(this.playerId, this.enemyId, this.opts);
+      this.models[0].root.visible = true; this.models[1].root.visible = true;
+      this.resetTraining(); this.hud.setMyStyle(STYLES[this.playerStyle].name);
+      this.hud.showBanner(`${STYLES[this.playerStyle].name} STYLE`, STYLES[this.playerStyle].tagline, 1.4);
+    };
     this.hud.onMoveList = () => this.hud.showMoveList(this.hud.moveListOpen ? null : buildMoveList(this.defs[0]));
     this.hud.onTutorial = () => { this.trainStats = { parries: 0, techs: 0, guardBreaks: 0, dodges: 0 }; this.tutorial.start(); };
     this.tutorial.onChange = (step, i, n) => {
@@ -182,6 +195,7 @@ export class Game {
     this.audio.setVolumes(s.musicVol, s.sfxVol);
     Object.assign(this.cam.tuning, tuningFor(normalizeCameraStyle(s.cameraStyle), s.cinematicIntensity, s.cameraDistance));
     this.cinematics = s.cinematics; this.cineIntensity = s.cinematicIntensity;
+    this.playerStyle = normalizeStyle(s.fightingStyle);
     this.cam.setLimits(this.arena.cameraLimits ?? {});
     this.touch?.setScale(s.touchScale);
     if (!s.perfOverlay) this.hud.setPerf(null);
@@ -248,6 +262,7 @@ export class Game {
 
   startEncounter(o: StartOpts): void {
     this.previewing = false; this.previewItem = undefined; this.fixedPose = false; this.paused = false;
+    this.playerStyle = normalizeStyle(this.save.profile.settings.fightingStyle); // (Training may try other styles; every new fight starts from the saved one)
     this.slowLeft = 0; this.timeScale = 1; this.cam.setMenuMode(false);
     this.opts = o;
     this.playerId = o.playerId; this.enemyId = o.enemyId;
@@ -258,7 +273,7 @@ export class Game {
     this.ai.onPhase = (ph) => { this.hud.showBanner(ph === 3 ? 'ENRAGED!' : `PHASE ${ph}`, ph === 3 ? 'FINAL PHASE' : 'THE BOSS GROWS STRONGER', 1.6); this.cam.addShake(0.2); this.audio.play('special'); };
     this.dummyMode = 'idle'; this.dummyAi = new EnemyAI(this.dummyDifficulty, this.dummyBehavior, undefined, this.defs[1].id);
     this.trainStats = { parries: 0, techs: 0, guardBreaks: 0, dodges: 0 }; this.lastMove = null; this.lastHit = null; this.dummyTimer = 0;
-    this.tutorial.stop(); this.hud.showMoveList(null);
+    this.tutorial.stop(); this.hud.showMoveList(null); this.hud.setMyStyle(STYLES[this.playerStyle].name);
     this.tutPos = { x: this.fighters[0].x, z: this.fighters[0].z };
     if (o.practice && !tutorialDone() && !new URLSearchParams(location.search).has('bots')) this.tutorial.start(); // first visit to Training: guided tutorial
     this.counters = { specials: 0, perfectDodges: 0, perfectRounds: 0 };
@@ -300,9 +315,13 @@ export class Game {
     this.models?.forEach((m) => m.dispose(this.scene));
     const base: [CharacterDef, CharacterDef] = [getCharacter(playerId), getCharacter(enemyId)];
     const practice = !!o?.practice;
+    // fighting styles: the player's comes from Settings (or the Training switch); an opponent's from its encounter, else from how it fights
+    const pStats = applyStyle(base[0].stats, this.playerStyle);
+    const eStyle: StyleId = !o || practice ? 'classic' : (o.enemyStyle ?? styleForOpponent(enemyId, o.behavior));
+    const eStats = applyStyle(base[1].stats, eStyle);
     const defs: [CharacterDef, CharacterDef] = [
-      { ...base[0], palette: this.paletteFor(base[0], true, o), stats: practice ? { ...base[0].stats, maxHealth: PRACTICE_HEALTH } : base[0].stats },
-      { ...base[1], name: o?.enemyName ?? base[1].name, palette: this.paletteFor(base[1], false, o), stats: { ...base[1].stats, maxHealth: practice ? PRACTICE_HEALTH : Math.round(base[1].stats.maxHealth * (o?.healthMult ?? 1)) } },
+      { ...base[0], palette: this.paletteFor(base[0], true, o), stats: practice ? { ...pStats, maxHealth: PRACTICE_HEALTH } : pStats },
+      { ...base[1], name: o?.enemyName ?? base[1].name, palette: this.paletteFor(base[1], false, o), stats: { ...eStats, maxHealth: practice ? PRACTICE_HEALTH : Math.round(eStats.maxHealth * (o?.healthMult ?? 1)) } },
     ];
     this.defs = defs;
     this.fighters = [new Fighter(defs[0].stats, this.arena.bounds), new Fighter(defs[1].stats, this.arena.bounds)];
@@ -332,6 +351,11 @@ export class Game {
     // Combat events are bound once; CombatManager keeps its emitter across setFighters().
     const ev = this.combat.events;
     ev.on('hit', (h) => {
+      if (h.armored) { // super armour: the blow is shrugged off - sparks and a dull thud, no flinch
+        this.fx.burst(h.x, h.y, h.z, 0xffd27a, false); this.audio.play('block', { rate: 0.65 }); this.cam.addShake(0.16);
+        if (this.cinematics) this.cam.zoomPulse(-0.04, 0.2, 0.06, 0.4);
+        return;
+      }
       const att = this.fighters[h.attacker], def = this.fighters[h.defender];
       let dx = def.x - att.x, dz = def.z - att.z; const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;
       this.fx.hit({ x: h.x, y: h.y, z: h.z, dx, dz, color: this.defs[h.attacker].palette.glow, strength: h.damage / 110, blocked: h.blocked, knockdown: h.knockdown });
@@ -352,7 +376,8 @@ export class Game {
       }
     });
     ev.on('attackStart', ({ who, id, startup }) => {
-      if (who === 0 && this.opts?.practice) { const a = this.fighters[0].stats.attacks[id]; if (a) { this.lastMove = { name: id, startup: a.startup, active: a.active, recovery: a.recovery, adv: a.grab ? 0 : onBlockAdvantage(a) }; this.updateTrainingInfo(); } }
+      if (this.cinematics && /^(iron|wind|shadow)_/.test(id)) this.styleFlourish(who, id.split('_')[0] as StyleId);
+      if (who === 0 && this.opts?.practice) { const a = this.fighters[0].stats.attacks[id]; if (a) { this.lastMove = { name: a.name ?? id, startup: a.startup, active: a.active, recovery: a.recovery, adv: a.grab ? 0 : onBlockAdvantage(a) }; this.updateTrainingInfo(); } }
       const heavy = ['heavy', 'special', 'ultimate', 'sweep', 'airheavy', 'counter', 'launcher'].includes(id);
       if (id === 'special' || id === 'ultimate') return; // dedicated sound on the 'special' event
       setTimeout(() => this.audio.play(heavy ? 'swing_heavy' : 'swing_light'), (startup * 0.55 / 60) * 1000);
@@ -366,13 +391,16 @@ export class Game {
     ev.on('special', (s) => {
       const ult = s.cinematic;
       if (s.who === 0) this.counters.specials++;
-      if (s.who === 0 && this.opts?.practice) this.tutorial.note(ult ? 'ultimate' : 'special');
+      if (s.who === 0 && this.opts?.practice && (s.id === 'special' || s.id === 'ultimate')) this.tutorial.note(ult ? 'ultimate' : 'special');
       this.audio.play(ult ? 'ultimate' : 'special');
       this.fx.burst(s.x, s.y, s.z, this.defs[s.who].palette.glow, ult);
       this.cam.addShake(ult ? 0.2 : 0.1);
       if (ult && this.cinematics) { this.cam.cinematic(this.fighters[s.who], 1.3, 1, { zoom: Math.min(0.14, 0.09 * this.cineIntensity) }); this.slowMo(0.5, 0.7); this.hud.letterbox(1.5); this.cam.zoomPulse(-0.12, 0.9, 0.25, 0.9); }
       else if (!ult && this.cinematics) { this.cam.cinematic(this.fighters[s.who], 0.7, 0.3); this.cam.zoomPulse(-0.07, 0.35, 0.12, 0.5); } // a gentle pan toward the attacker
-      if (s.who === 0) this.hud.showBanner(this.defs[0].abilities[ult ? 1 : 0].toUpperCase(), '', 0.8);
+      if (s.who === 0) { // banner: the character's named ability, or the move's own name (style moves, directional shadow arts)
+        const own = this.fighters[0].stats.attacks[s.id]?.name;
+        this.hud.showBanner((s.id === 'special' || s.id === 'ultimate' || !own ? this.defs[0].abilities[ult ? 1 : 0] : own).toUpperCase(), '', 0.8);
+      }
     });
     ev.on('ko', ({ loser }) => { const lf = this.fighters[loser]; this.fx.burst(lf.x, lf.y + 1, lf.z, 0xffffff, true); this.audio.play('ko'); if (this.cinematics) { this.cam.cinematic(this.fighters[loser], 1.1, 0.75, { low: 0.5 }); this.slowMo(0.3, 1.1); this.hud.letterbox(2.2); this.cam.zoomPulse(-0.1, 1.1, 0.6, 1.2); } });
     ev.on('perfectDodge', ({ who }) => { const df = this.fighters[who]; this.fx.perfectDodge(df.x, df.y + 1, df.z); if (this.cinematics) { this.slowMo(0.55, 0.3); this.cam.zoomPulse(-0.06, 0.3, 0.1, 0.4); } if (who === 0) { this.trainStats.dodges++; this.counters.perfectDodges++; this.hud.showBanner('PERFECT DODGE', '', 0.6); } });
@@ -433,6 +461,14 @@ export class Game {
     if (this.previewing || this.simSpeed > 1) return;
     this.slowScale = this.slowLeft > 0 ? Math.min(this.slowScale, scale) : scale; // overlapping effects keep the deeper slow-down
     this.slowLeft = Math.max(this.slowLeft, seconds);
+  }
+
+  /** Style-specific camera work when a fighting-style move starts: IRON pushes in low and heavy, WIND sweeps around the fighter with a tilt, SHADOW rolls and snap-zooms with a beat of slow motion. */
+  private styleFlourish(who: number, style: StyleId): void {
+    const f = this.fighters[who], dir = who === 0 ? 1 : -1;
+    if (style === 'iron') { this.cam.lowAngle(0.4, 0.8); this.cam.zoomPulse(-0.06, 0.5, 0.25, 0.5); this.cam.addShake(0.08); }
+    else if (style === 'wind') { this.cam.cinematic(f, 0.9, 0.5, { orbit: 0.7 }); this.cam.roll(-3 * dir, 0.8); this.cam.zoomPulse(0.04, 0.5, 0.2, 0.5); }
+    else { this.cam.roll(5 * dir, 0.6); this.cam.zoomPulse(-0.08, 0.4, 0.15, 0.4); this.slowMo(0.65, 0.22); }
   }
 
   private updateTrainingInfo(): void {

@@ -91,6 +91,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); o
 .tbtn.kick { right: calc(var(--s) * 1.15); bottom: calc(var(--s) * .1); background: rgba(212,110,20,.65); }
 .tbtn.special { right: calc(var(--s) * 2.3); bottom: calc(var(--s) * 1.25); background: rgba(47,139,255,.65); }
 .tbtn.ultimate { right: 0; bottom: calc(var(--s) * 2.25); background: rgba(255,180,58,.7); color: #1a1000; }
+.tbtn.style { right: calc(var(--s) * 1.15); bottom: calc(var(--s) * 2.95); background: rgba(120,70,190,.7); }
 .tbtn.jump { right: calc(var(--s) * 2.3); bottom: calc(var(--s) * .05); background: rgba(70,90,150,.65); }
 .tbtn.grab { right: calc(var(--s) * 2.3); bottom: calc(var(--s) * 2.4); background: rgba(150,80,200,.65); }
 .tbtn.crouch { right: calc(var(--s) * 3.4); bottom: calc(var(--s) * 1.9); background: rgba(90,110,60,.7); }

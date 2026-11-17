@@ -1,6 +1,6 @@
 import type { Button, FighterInput } from '../combat/types';
 
-const GAME_KEYS = new Set(['KeyA', 'KeyD', 'KeyW', 'KeyS', 'KeyC', 'KeyG', 'KeyQ', 'KeyE', 'KeyJ', 'KeyK', 'KeyL', 'KeyU', 'KeyI', 'Space', 'ShiftLeft', 'ShiftRight',
+const GAME_KEYS = new Set(['KeyA', 'KeyD', 'KeyW', 'KeyS', 'KeyC', 'KeyG', 'KeyB', 'KeyQ', 'KeyE', 'KeyJ', 'KeyK', 'KeyL', 'KeyU', 'KeyI', 'Space', 'ShiftLeft', 'ShiftRight',
   'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']);
 
 /**
@@ -33,6 +33,7 @@ export class KeyboardInput {
     else if (e.code === 'KeyK') this.queue.push('heavy');
     else if (e.code === 'KeyL') this.queue.push('kick');
     else if (e.code === 'KeyG') this.queue.push('grab');
+    else if (e.code === 'KeyB') this.queue.push('style');
     else if (e.code === 'KeyU') this.queue.push('special');
     else if (e.code === 'KeyI') this.queue.push('ultimate');
     else if (e.code === 'KeyQ') this.dodgeQueue = 1;

@@ -3,7 +3,7 @@ import { BODY_RADIUS, Fighter, GUARD_MAX, TECH_FRAMES } from './Fighter';
 import type { AttackData, FighterInput, HitSample } from './types';
 
 export interface CombatEvents {
-  hit: { attackId: string; attacker: number; defender: number; damage: number; x: number; y: number; z: number; blocked: boolean; knockdown: boolean; hitstop: number };
+  hit: { attackId: string; attacker: number; defender: number; damage: number; x: number; y: number; z: number; blocked: boolean; knockdown: boolean; hitstop: number; /** absorbed by super armour: the defender was not interrupted */ armored?: boolean };
   combo: { owner: number; count: number };
   comboEnd: { owner: number; count: number };
   ko: { loser: number };
@@ -22,12 +22,16 @@ export interface CombatEvents {
 
 /** What one attacker's active hitbox does to the opponent this frame (computed from a snapshot, applied afterwards). */
 interface Resolution {
-  kind: 'hit' | 'block' | 'dodged' | 'parry' | 'grab';
+  kind: 'hit' | 'block' | 'dodged' | 'parry' | 'grab' | 'armor';
   ai: number; data: AttackData; dx: number; dz: number; cx: number; cy: number; cz: number; crouched: boolean;
   damage: number; hitstop: number; count: number;
 }
 
 const MAX_COMBO_SCALING_FLOOR = 0.4;
+/** Super armour absorbs hits up to this much damage (heavy attacks and above still break it). */
+export const ARMOR_MAX = 110;
+/** Share of an absorbed hit's damage an armoured fighter still takes. */
+export const ARMOR_TAKEN = 0.65;
 const CHIP_RATIO = 0.08;
 
 /**
@@ -121,6 +125,11 @@ export class CombatManager {
       const grabbable = def.grounded && ['idle', 'walk', 'block', 'crouch', 'blockstun'].includes(def.state) || (def.state === 'attack' && def.attackPhase !== 'active' && def.grounded);
       return grabbable ? { ...base, kind: 'grab', damage: data.damage, hitstop: 4, count: 0 } : null;
     }
+    // ---- super armour: a fighter in the startup/active frames of an armoured move absorbs a normal hit and keeps going
+    const da = def.attack;
+    if (def.state === 'attack' && da?.armor && def.attackPhase !== 'recovery' && data.damage <= ARMOR_MAX && def.health > Math.round(data.damage * ARMOR_TAKEN)) {
+      return { ...base, kind: 'armor', damage: Math.max(1, Math.round(data.damage * ARMOR_TAKEN)), hitstop: 3, count: 0 };
+    }
     // ---- height: a crouching fighter ducks HIGH attacks completely
     const level = data.level ?? 'mid';
     if (def.state === 'crouch' && level === 'high') return null;
@@ -155,6 +164,12 @@ export class CombatManager {
       att.takeParried(-r.dx, -r.dz);
       def.parrySuccess(); def.addEnergy(10);
       this.events.emit('parry', { who: 1 - ai, attacker: ai, x: r.cx, y: r.cy, z: r.cz });
+      return;
+    }
+    if (r.kind === 'armor') {
+      def.takeArmorHit(r.damage); att.connected = true; att.addEnergy(data.energyGain * 0.5); def.addEnergy(2);
+      this.damageDealt[ai] += r.damage;
+      this.events.emit('hit', { attackId: data.id, attacker: ai, defender: 1 - ai, damage: r.damage, x: r.cx, y: r.cy, z: r.cz, blocked: false, knockdown: false, hitstop: 3, armored: true });
       return;
     }
     if (r.kind === 'grab') {

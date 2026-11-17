@@ -12,6 +12,7 @@ const BUTTONS: BtnDef[] = [
   { action: 'dodge', label: 'DODGE', cls: 'dodge' },
   { action: 'grab', label: 'GRAB', cls: 'grab' },
   { action: 'crouch', label: 'DUCK', cls: 'crouch' },
+  { action: 'style', label: 'STYLE', cls: 'style' },
   { action: 'special', label: 'SPECIAL', cls: 'special' },
   { action: 'ultimate', label: 'ULT', cls: 'ultimate' },
 ];

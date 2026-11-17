@@ -46,6 +46,8 @@ export class HUD {
   onDummyBehavior: (b: string) => void = () => {};
   onDummyLevel: (l: string) => void = () => {};
   onMoveList: () => void = () => {};
+  onMyStyle: () => void = () => {};
+  private myStyleBtn = el('button', 'tbtn2', 'MY STYLE');
   onTutorial: () => void = () => {};
   private tutorialEl = el('div', 'tutorial hidden');
   private movesEl = el('div', 'overlay movelist hidden');
@@ -91,9 +93,10 @@ export class HUD {
     const tut = el('button', 'tbtn2', 'TUTORIAL'); tut.onclick = () => this.onTutorial();
     const reset = el('button', 'tbtn2', 'RESET'); reset.onclick = () => this.onTrainingReset();
     const exit = el('button', 'tbtn2 danger', 'EXIT'); exit.onclick = () => this.onTrainingExit();
-    this.training.append(dm, ai, moves, tut, reset, exit);
+    this.myStyleBtn.onclick = () => this.onMyStyle();
+    this.training.append(dm, ai, this.myStyleBtn, moves, tut, reset, exit);
 
-    const hint = el('div', 'hint', '<b>A/D</b>move <b>W</b>jump <b>Hold back</b>block (tap = parry) <b>C</b>crouch <b>G</b>grab <b>S/Shift</b>walk around <b>Q/E</b>sidestep <b>J</b>light <b>K</b>heavy <b>L</b>kick <b>U</b>special <b>+direction</b>more moves <b>I</b>ultimate <b>Esc</b>pause');
+    const hint = el('div', 'hint', '<b>A/D</b>move <b>W</b>jump <b>Hold back</b>block (tap = parry) <b>C</b>crouch <b>G</b>grab <b>B</b>style move <b>S/Shift</b>walk around <b>Q/E</b>sidestep <b>J</b>light <b>K</b>heavy <b>L</b>kick <b>U</b>special <b>+direction</b>more moves <b>I</b>ultimate <b>Esc</b>pause');
     this.root.append(this.letterEl, top, this.combo, this.banner, hint, this.fps, this.perf, this.camDbg, this.muteBtn, this.pauseBtn, this.training, this.tutorialEl);
     parent.append(this.root, this.select, this.result, this.movesEl);
   }
@@ -116,6 +119,7 @@ export class HUD {
     if (flash) { this.tutorialEl.innerHTML = `<b>${flash}</b>`; return; }
     if (step) this.tutorialEl.innerHTML = `<small>TUTORIAL ${step.n}/${step.total}</small><b>${step.title}</b><span>${step.text}</span><i><u style="width:${Math.round(step.progress * 100)}%"></u></i>`;
   }
+  setMyStyle(name: string): void { this.myStyleBtn.textContent = `MY STYLE: ${name}`; }
   showMoveList(html: string | null): void {
     this.movesEl.classList.toggle('hidden', !html);
     if (html) { this.movesEl.innerHTML = `<div class="panel">${html}<button class="btn" type="button"><span>CLOSE</span></button></div>`; (this.movesEl.querySelector('button') as HTMLButtonElement).onclick = () => this.showMoveList(null); }

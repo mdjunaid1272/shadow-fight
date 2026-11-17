@@ -13,6 +13,9 @@ export const MOVE_INPUTS: Record<string, string> = {
   spinslash: 'sideways + K', spinkick: 'sideways + L', sprintstrike: 'sprint + J',
   divekick: 'jump, forward + L', airback: 'jump, back + J', airspin: 'jump, sideways + K',
   special_f: 'forward + U', special_b: 'back + U', special_low: 'C + U',
+  iron_a: 'B', iron_b: 'forward + B', iron_c: 'back + B', iron_d: 'C + B',
+  wind_a: 'B', wind_b: 'forward + B', wind_c: 'back + B', wind_d: 'C + B',
+  shadow_a: 'B', shadow_b: 'forward + B', shadow_c: 'back + B', shadow_d: 'C + B',
   // chain finishers (character-specific)
   risingslash: 'J, J, J > L', tsubame: 'J > L', flipkick: 'J, J, J, J > K', trip: 'J, J, J > L',
   knee: 'J, J > L', hammerfist: 'J > K', whirl: 'J, J, J > K', polekick: 'J, J > L',
@@ -25,6 +28,7 @@ const SECTIONS: Array<[string, string[]]> = [
   ['THROW & COUNTER', ['grab', 'counter']],
   ['AIR MOVES', ['airlight', 'airheavy', 'airkick', 'divekick', 'airback', 'airspin']],
   ['SHADOW ARTS (cost energy)', ['special', 'special_f', 'special_b', 'special_low', 'ultimate']],
+  ['STYLE MOVES (B / STYLE, cost energy)', ['iron_a', 'iron_b', 'iron_c', 'iron_d', 'wind_a', 'wind_b', 'wind_c', 'wind_d', 'shadow_a', 'shadow_b', 'shadow_c', 'shadow_d']],
 ];
 const MOVE_NAMES: Record<string, string> = {
   dashstrike: 'Dash Strike', rush: 'Rush', axekick: 'Axe Kick', retreatcut: 'Retreat Cut', backkick: 'Back Kick', spinslash: 'Spin Slash', spinkick: 'Spin Kick', sprintstrike: 'Sprint Strike',
@@ -33,7 +37,7 @@ const MOVE_NAMES: Record<string, string> = {
   light1: 'Light 1', light2: 'Light 2', light3: 'Light 3', light4: 'Light 4', kick: 'Kick', heavy: 'Heavy', lowkick: 'Low Kick', sweep: 'Sweep',
   launcher: 'Launcher', grab: 'Throw', counter: 'Counter', airlight: 'Air Light', airheavy: 'Air Heavy', airkick: 'Air Kick', special: 'Special', ultimate: 'Ultimate',
 };
-const KEY: Record<Button, string> = { light: 'J', heavy: 'K', kick: 'L', special: 'U', ultimate: 'I', grab: 'G' };
+const KEY: Record<Button, string> = { light: 'J', heavy: 'K', kick: 'L', special: 'U', ultimate: 'I', grab: 'G', style: 'B' };
 
 /** Frame advantage when the attack is BLOCKED: the defender's blockstun minus the attacker's remaining frames after contact. */
 export function onBlockAdvantage(a: AttackData): number { return a.blockstun - (a.active - 1 + a.recovery); }
@@ -82,7 +86,8 @@ export function buildMoveList(def: CharacterDef): string {
     return rows ? `<tr class="sec"><td colspan="7">${title}</td></tr>${rows}` : '';
   }).join('');
   const combos = comboRoutes(def).map((r) => `<li><b>${r.inputs}</b> <span>${r.damage} dmg</span></li>`).join('');
-  return `<h2>${def.name} - ${total} MOVES</h2>
+  const styleName = def.stats.style && def.stats.style !== 'classic' ? ` (${def.stats.style.toUpperCase()} style)` : '';
+  return `<h2>${def.name}${styleName} - ${total} MOVES</h2>
 <table class="moves"><thead><tr><th>MOVE</th><th>INPUT</th><th>HIT</th><th>S/A/R</th><th>DMG</th><th>BLOCK</th><th>HIT</th></tr></thead><tbody>${body}</tbody></table>
 <h3>COMBOS</h3><ul class="combos">${combos}</ul>
 <p class="note">S/A/R = startup / active / recovery frames (60 per second). BLOCK/HIT = frame advantage (+ you act first). Hold a DIRECTION (forward / back / sideways) while pressing a button for the direction moves; moves marked LOW need a crouching guard, HIGH moves are ducked by crouching (C). Hold BACK to block; tap it as an attack lands to PARRY. KD = knockdown / launch.</p>`;

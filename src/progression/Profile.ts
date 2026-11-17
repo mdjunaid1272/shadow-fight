@@ -20,6 +20,8 @@ export interface Profile {
     musicVol: number; sfxVol: number; quality: 'low' | 'medium' | 'high'; touchScale: number; perfOverlay: boolean;
     /** 'hybrid' = controlled 3/4 cinematic camera (default); 'calm' = steady side-on; 'dynamic' = the older, livelier camera. */
     cameraStyle: 'hybrid' | 'calm' | 'dynamic';
+    /** Fighting style: 'classic' (default) | 'iron' | 'wind' | 'shadow' - see combat/Styles.ts. */
+    fightingStyle: 'classic' | 'iron' | 'wind' | 'shadow';
     /** Strength of cinematic camera moves (ultimate / KO / victory), 0.3 - 1.5. */
     cinematicIntensity: number;
     /** Camera distance multiplier (1 = default, higher = further back), 0.8 - 1.8. */
@@ -47,7 +49,7 @@ export function defaultProfile(): Profile {
   return {
     version: SAVE_VERSION, createdAt: Date.now(), gold: 0, gems: 0, characters: {},
     stats: { matches: 0, wins: 0, maxCombo: 0, damageDealt: 0 },
-    settings: { arena: 'temple', difficulty: 'NORMAL', lastCharacter: 'ronin', musicVol: 0.8, sfxVol: 1, quality: 'high', touchScale: 1, perfOverlay: false, cameraStyle: 'hybrid', cinematicIntensity: 1, cameraDistance: 1, cinematics: true },
+    settings: { arena: 'temple', difficulty: 'NORMAL', lastCharacter: 'ronin', musicVol: 0.8, sfxVol: 1, quality: 'high', touchScale: 1, perfOverlay: false, cameraStyle: 'hybrid', fightingStyle: 'classic', cinematicIntensity: 1, cameraDistance: 1, cinematics: true },
     story: { cleared: 0 },
     records: { tournamentBest: 0, tournamentWins: 0, survivalBest: 0 },
     inventory: [], equipped: {}, weaponTier: {},
@@ -98,6 +100,7 @@ export function migrateProfile(raw: unknown): Profile {
       touchScale: num(st.touchScale, 1), perfOverlay: !!st.perfOverlay,
       // v3: the old default 'calm' (never chosen explicitly by most players) moves to the new hybrid camera; an explicit 'dynamic' is kept
       cameraStyle: st.cameraStyle === 'dynamic' ? 'dynamic' : st.cameraStyle === 'calm' && num(r.version, 0) >= 3 ? 'calm' : 'hybrid',
+      fightingStyle: st.fightingStyle === 'iron' || st.fightingStyle === 'wind' || st.fightingStyle === 'shadow' ? st.fightingStyle : 'classic',
       cinematicIntensity: Math.max(0.3, Math.min(1.5, num(st.cinematicIntensity, 1))), cameraDistance: Math.max(0.8, Math.min(1.8, num(st.cameraDistance, 1))), cinematics: st.cinematics !== false,
       quality: st.quality === 'low' || st.quality === 'medium' || st.quality === 'high' ? st.quality : 'high',
     },

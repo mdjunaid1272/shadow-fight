@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { AnimationController, IDX_ROOTY, IDX_ROOTZ, JOINTS, POSE_SIZE } from '../src/characters/AnimationController';
 import { CHARACTERS } from '../src/characters/CharacterData';
+import { applyStyle, STYLE_IDS } from '../src/combat/Styles';
 import { registerClips } from '../src/characters/ProceduralClips';
 import { ParticleSystem } from '../src/core/ParticleSystem';
 
@@ -9,7 +10,9 @@ const ok = (c: boolean, m: string) => { console.log((c ? 'PASS ' : 'FAIL ') + m)
 const DT = 1 / 60;
 const REQUIRED = ['IDLE', 'WALK', 'BACKWARD', 'JUMP', 'BLOCK', 'DODGE', 'HIT_FRONT', 'HIT_FRONT_B', 'HIT_HEAVY', 'LAUNCH', 'KNOCKDOWN', 'DEFEAT', 'GETUP', 'VICTORY', 'RUN', 'FALL', 'LAND', 'DODGE_LEFT', 'DODGE_RIGHT', 'HIT_BACK', 'STAGGER', 'WEAPON_ATTACK'];
 
-for (const def of CHARACTERS) {
+// every character in every fighting style (the style adds moves, each of which needs an animation)
+const DEFS = STYLE_IDS.flatMap((style) => CHARACTERS.map((c) => ({ ...c, id: style === 'classic' ? c.id : `${c.id}/${style}`, stats: applyStyle(c.stats, style) })));
+for (const def of DEFS) {
   const ctrl = new AnimationController();
   registerClips(ctrl, def);
   const attackClips = [...new Set(Object.values(def.stats.attacks).map((a) => a.clip))];

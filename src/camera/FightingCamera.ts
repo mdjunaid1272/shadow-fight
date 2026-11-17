@@ -63,6 +63,8 @@ export class FightingCamera {
   private cineZoom = 0;
   private zoomK = new Spring(0); private zoomLeft = 0; private zoomAmt = 0; private zoomIn_ = 0.07; private zoomOut_ = 0.3;
   private lowK = new Spring(0); private lowLeft = 0; private lowAmt = 0;
+  /** Camera roll (a dutch tilt) for style flourishes: eased in, held, eased back to level. */
+  private rollK = new Spring(0); private rollLeft = 0; private rollAmt = 0;
 
   /** Live action hints from the game (see setHints). */
   private hint = { actionDir: 0, speed: 0 };
@@ -156,6 +158,8 @@ export class FightingCamera {
   zoomPulse(amount: number, seconds: number, inTime = 0.07, outTime = 0.3): void {
     this.zoomAmt = clamp(amount, -0.15, 0.2) * this.tuning.cinematic; this.zoomLeft = seconds; this.zoomIn_ = inTime; this.zoomOut_ = outTime;
   }
+  /** Tilt the camera by deg degrees (limited to +-6) for seconds, then ease back to level. Scaled by the cinematic intensity. */
+  roll(deg: number, seconds: number): void { this.rollAmt = clamp(deg, -6, 6); this.rollLeft = seconds; }
   lowAngle(amount: number, seconds: number): void { this.lowAmt = clamp(amount, 0, 1); this.lowLeft = seconds; }
 
   /** Round-start sweep: starts higher and angled, then settles into the fight frame. */
@@ -165,7 +169,7 @@ export class FightingCamera {
   snap(a: P, b: P): void {
     this.anchorX = (a.x + b.x) / 2;
     const t = this.targets(a, b, 0.016, true);
-    this.kickX.snap(0); this.kickY.snap(0); this.kickTX = this.kickTY = this.kickDX = this.kickDY = 0; this.menuK.snap(this.menuOn ? 1 : 0); this.lowK.snap(0); this.lowLeft = 0; this.zoomK.snap(0); this.zoomLeft = 0;
+    this.kickX.snap(0); this.kickY.snap(0); this.kickTX = this.kickTY = this.kickDX = this.kickDY = 0; this.menuK.snap(this.menuOn ? 1 : 0); this.lowK.snap(0); this.lowLeft = 0; this.rollK.snap(0); this.rollLeft = 0; this.zoomK.snap(0); this.zoomLeft = 0;
     this.x.snap(t.mx); this.y.snap(t.my); this.z.snap(t.mz);
     this.dist.snap(t.dist); this.yaw.snap(t.yaw);
     this.lookX.snap(t.mx); this.lookY.snap(t.my); this.lookZ.snap(t.mz);
@@ -196,6 +200,8 @@ export class FightingCamera {
     const introK = this.introK > 0 ? this.introK2.step(0, 0.75, dt) : 0;
     if (introK < 0.002) this.introK = 0;
     this.lowLeft = Math.max(0, this.lowLeft - dt);
+    this.rollLeft = Math.max(0, this.rollLeft - dt);
+    this.rollK.step(this.rollLeft > 0 ? this.rollAmt : 0, this.rollLeft > 0 ? 0.16 : 0.45, dt);
     this.zoomLeft = Math.max(0, this.zoomLeft - dt);
     this.zoomK.step(this.zoomLeft > 0 ? this.zoomAmt : 0, this.zoomLeft > 0 ? this.zoomIn_ : this.zoomOut_, dt);
     const lowK = this.lowK.step(this.lowLeft > 0 ? this.lowAmt : 0, this.lowLeft > 0 ? 0.18 : 0.6, dt);
@@ -375,6 +381,7 @@ export class FightingCamera {
     this.tmp.x += ox + sway + this.kickX.value; this.tmp.y += oy + this.kickY.value;
     this.camera.position.copy(this.limitEye(this.tmp));
     this.camera.lookAt(this.lookX.value, this.lookY.value, this.lookZ.value * 0.6);
+    if (Math.abs(this.rollK.value) > 0.001) this.camera.rotateZ(this.rollK.value * D2R * Math.min(1, this.tuning.cinematic));
     this.camera.rotateZ(((Math.sin(this.time * 47) * 0.012) + (Math.sin(this.time * 83) * 0.006)) * s * 6); // tiny roll with shake
     if (Math.abs(this.camera.fov - this.fov.value) > 0.001) { this.camera.fov = this.fov.value; this.camera.updateProjectionMatrix(); }
   }

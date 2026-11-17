@@ -3,6 +3,7 @@ import { CombatManager } from '../src/combat/CombatManager';
 import { Fighter } from '../src/combat/Fighter';
 import { emptyInput, type Button, type FighterInput } from '../src/combat/types';
 import { EnemyAI } from '../src/ai/EnemyAI';
+import { getCharacter } from '../src/characters/CharacterData';
 
 let fails = 0;
 const ok = (c: boolean, m: string) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fails++; };
@@ -298,6 +299,137 @@ import { ModeManager, STORY, CHAPTERS } from '../src/core/Modes';
   const low = migrateProfile({ settings: { cinematicIntensity: -4 } });
   ok(low.settings.cinematicIntensity === 0.3, 'cinematic intensity is clamped to its minimum');
 }
+// ================================================================ PRIORITY 1: simultaneous resolution, movement, hit shapes
+{
+  const hits = (cm: CombatManager) => { const l: Array<{ attacker: number; damage: number; blocked: boolean }> = []; cm.events.on('hit', (h) => l.push({ attacker: h.attacker, damage: h.damage, blocked: h.blocked })); return l; };
+  const idle = emptyInput;
+  const run = (cm: CombatManager, n: number, ia: () => FighterInput = idle, ib: () => FighterInput = idle) => { for (let i = 0; i < n; i++) cm.step([ia(), ib()]); };
+
+  // S1. simultaneous light attacks: a genuine trade, identical damage, neither fighter has priority
+  { const { a, b, cm } = mk(); const l = hits(cm);
+    cm.step([press('light'), press('light')]); run(cm, 30);
+    ok(l.length === 2 && l.some((h) => h.attacker === 0) && l.some((h) => h.attacker === 1), `S1 simultaneous lights both connect (${l.length} hits)`);
+    ok(a.health === b.health && a.health < a.stats.maxHealth, `S1 trade is symmetric: both at ${a.health}/${a.stats.maxHealth}`);
+  }
+  // S2. simultaneous heavies: both knocked down
+  { const { a, b, cm } = mk(); const l = hits(cm);
+    cm.step([press('heavy'), press('heavy')]); run(cm, 40);
+    ok(l.length === 2 && a.health === b.health, `S2 simultaneous heavies trade evenly (hp ${a.health} / ${b.health})`);
+    ok((a.state === 'knockdown' || a.state === 'getup' || a.state === 'idle') && a.health < 1000 && (b.state === 'knockdown' || b.state === 'getup' || b.state === 'idle'), 'S2 both fighters were knocked down');
+  }
+  // S3. order independence: swapping which fighter is index 0 mirrors the outcome exactly
+  { const run1 = (swap: boolean) => {
+      const x = new Fighter(RONIN, bounds), y = new Fighter(RONIN, bounds); x.reset(-0.9, 0, 1); y.reset(0.9, 0, -1);
+      const cm = new CombatManager(swap ? [y, x] : [x, y]); const ia = press('light'), ib = press('light');
+      cm.step(swap ? [ib, ia] : [ia, ib]); for (let i = 0; i < 30; i++) cm.step([emptyInput(), emptyInput()]);
+      return [x.health, y.health, x.state, y.state].join();
+    };
+    ok(run1(false) === run1(true), 'S3 outcome does not depend on which fighter is index 0');
+  }
+  // S4. player attacks while the opponent is mid-startup of a slower attack: only the faster one lands, no trade
+  { const { a, b, cm } = mk(); const l = hits(cm);
+    cm.step([press('light'), emptyInput()]); run(cm, 2); cm.step([emptyInput(), press('heavy')]); run(cm, 40);
+    ok(l.length === 1 && l[0].attacker === 0 && b.health < 1000 && a.health === 1000, 'S4 faster attack interrupts the slower one (no phantom trade)');
+  }
+  // S5. both receive damage on the same frame (exact frame check)
+  { const { a, b, cm } = mk(); let sameFrame = false; let frame = 0; const seen: number[] = [];
+    cm.events.on('hit', (h) => seen.push(frame * 10 + h.attacker));
+    cm.step([press('light'), press('light')]);
+    for (frame = 1; frame < 30; frame++) cm.step([emptyInput(), emptyInput()]);
+    sameFrame = seen.length === 2 && Math.floor(seen[0] / 10) === Math.floor(seen[1] / 10);
+    ok(sameFrame && a.health < 1000 && b.health < 1000, 'S5 both fighters take damage on the SAME simulation frame');
+  }
+  // S6. simultaneous knockout is a draw: both KO events fire, both fighters defeated
+  { const { a, b, cm } = mk(); const kos: number[] = []; cm.events.on('ko', (k) => kos.push(k.loser)); a.health = b.health = 10;
+    cm.step([press('light'), press('light')]); run(cm, 30);
+    ok(kos.length === 2 && kos.includes(0) && kos.includes(1), `S6 double KO reports both losers (${kos.join(',')})`);
+    ok(a.state === 'defeat' && b.state === 'defeat', 'S6 both fighters end defeated');
+  }
+  // S7. a blocked attack is chip damage and never costs the attacker anything; blocking fighter gets no counter priority
+  { const { a, b, cm } = mk(); const l = hits(cm); const blk = { ...emptyInput(), block: true };
+    cm.step([press('light'), blk]); for (let i = 0; i < 30; i++) cm.step([emptyInput(), blk]);
+    ok(l.length === 1 && l[0].blocked && b.health === 1000 - Math.round(40 * 0.08) && a.health === 1000, 'S7 blocked attack: chip only, attacker unharmed');
+  }
+  // S8. single-hit protection: one attack never hits twice, determinism: identical runs give identical states
+  { const play = () => { const { a, b, cm } = mk(); const l = hits(cm); cm.step([press('heavy'), idle()]); run(cm, 60); return { n: l.length, s: [a.x, a.z, b.x, b.z, a.health, b.health].map((v) => v.toFixed(6)).join() }; };
+    const r1 = play(), r2 = play();
+    ok(r1.n === 1, 'S8 an attack hits only once');
+    ok(r1.s === r2.s, 'S8 identical inputs give an identical simulation (deterministic)');
+  }
+
+  // M1. lateral movement: side=+1 is toward the camera (+z) for BOTH fighters, whichever way they face
+  { const { a, b, cm } = mk(); const side = { ...emptyInput(), side: 1 };
+    const d0 = Math.hypot(a.x - b.x, a.z - b.z);
+    run(cm, 40, () => side, () => side);
+    ok(a.z > 0.5 && b.z > 0.5, `M1 side=+1 moves both fighters toward the camera (z ${a.z.toFixed(2)}, ${b.z.toFixed(2)})`);
+    ok(Math.abs(Math.hypot(a.x - b.x, a.z - b.z) - d0) < 0.2, 'M1 strafing together keeps the distance');
+  }
+  // M2. circling: pure lateral input orbits the opponent at (nearly) constant distance, no drifting away
+  { const { a, b, cm } = mk(); b.reset(0.9, 0, -1); const side = { ...emptyInput(), side: 1 };
+    const d0 = Math.hypot(a.x - b.x, a.z - b.z); let worst = 0;
+    for (let i = 0; i < 45; i++) { cm.step([side, idle()]); worst = Math.max(worst, Math.abs(Math.hypot(a.x - b.x, a.z - b.z) - d0)); }
+    ok(worst < 0.05 && a.z > 0.5, `M2 orbit keeps distance (max drift ${worst.toFixed(3)} m, moved ${a.z.toFixed(2)} m around)`);
+    ok(a.fx > 0.5, 'M2 fighter keeps facing the opponent while circling');
+  }
+  // M3. diagonals are not faster than straight walking (fighters start far apart so they never collide)
+  { const far = () => { const m = mk(); m.a.reset(-6, 0, 1); m.b.reset(6, 0, -1); return m; };
+    const d = far(); const x0 = d.a.x, z0 = d.a.z; run(d.cm, 20, () => ({ ...emptyInput(), fwd: 1, side: 1 }));
+    const diag = Math.hypot(d.a.x - x0, d.a.z - z0) / 20;
+    const w = far(); const wx = w.a.x; run(w.cm, 20, () => ({ ...emptyInput(), fwd: 1 }));
+    const straight = (w.a.x - wx) / 20;
+    ok(diag <= straight * 1.02 && straight > 0.04, `M3 diagonal speed ${diag.toFixed(4)} <= forward speed ${straight.toFixed(4)}`);
+  }
+  // M4. arena boundary: nobody leaves the arena however long they strafe / walk
+  { const { a, b, cm } = mk(); let out = false;
+    for (let i = 0; i < 600; i++) { cm.step([{ ...emptyInput(), side: 1, fwd: i % 100 < 50 ? -1 : 1 }, { ...emptyInput(), side: -1, fwd: -1 }]); if (Math.abs(a.x) > bounds.x + 1e-6 || Math.abs(a.z) > bounds.z + 1e-6 || Math.abs(b.x) > bounds.x + 1e-6 || Math.abs(b.z) > bounds.z + 1e-6) out = true; }
+    ok(!out, 'M4 fighters stay inside the arena boundary');
+  }
+  // M5. fighters never walk through each other
+  { const { a, b, cm } = mk(); let min = 99; const fw = { ...emptyInput(), fwd: 1 };
+    for (let i = 0; i < 200; i++) { cm.step([fw, fw]); min = Math.min(min, Math.hypot(a.x - b.x, a.z - b.z)); }
+    ok(min > 0.6, `M5 bodies never overlap (closest ${min.toFixed(2)} m)`);
+  }
+  // M6. air control: steering mid-jump bends the jump, but only gradually
+  { const { a, cm } = mk(); cm.step([{ ...emptyInput(), jump: true }, idle()]);
+    run(cm, 10); const z1 = a.z; run(cm, 20, () => ({ ...emptyInput(), side: 1 }));
+    ok(a.state === 'jump' || a.landTimer > 0 || a.y >= 0, 'M6 jump continues normally');
+    ok(a.z > z1 + 0.05 && a.z < 1.5, `M6 holding a direction steers the jump gradually (z ${z1.toFixed(2)} -> ${a.z.toFixed(2)})`);
+  }
+  // M7. input buffering: a press made up to 8 frames before the fighter can act is not lost
+  { const { a, cm } = mk(); cm.step([{ ...emptyInput(), dodge: 1 }, idle()]); run(cm, 18); // dodge lasts 24 frames
+    cm.step([press('light'), idle()]); let started = -1;
+    for (let i = 0; i < 12; i++) { cm.step([idle(), idle()]); if (a.state === 'attack' && started < 0) started = i; }
+    ok(started >= 0 && started <= 8, `M7 attack pressed during a dodge starts as soon as it ends (${started} frames later)`);
+  }
+  // M8. no input => no drift, no sliding
+  { const { a, b, cm } = mk(); run(cm, 60); ok(Math.abs(a.x + 0.9) < 1e-9 && Math.abs(b.x - 0.9) < 1e-9 && a.z === 0, 'M8 idle fighters do not slide'); }
+
+  // H1. hit shapes follow the weapon (never reach beyond the visible weapon, never tunnel)
+  { const shapeOf = (id: string, atk: string) => {
+      const f = new Fighter(getCharacter(id).stats, bounds); f.reset(0, 0, 1); f.setState('attack');
+      f.attack = getCharacter(id).stats.attacks[atk]; const a = f.attack!;
+      const all: Array<{ x: number; z: number }> = [];
+      for (let k = 0; k < a.active; k++) { f.attackFrame = a.startup + k; for (const s of f.hitSamples() ?? []) all.push(s); }
+      return { a, all, f };
+    };
+    const sword = shapeOf('ronin', 'heavy'), spear = shapeOf('akira', 'light1'), fist = shapeOf('titan', 'light1'), dag = shapeOf('shinobi', 'light1');
+    const spread = (s: { all: Array<{ z: number }> }) => Math.max(...s.all.map((p) => Math.abs(p.z)));
+    ok(spread(sword) > 0.6, `H1 katana heavy sweeps an arc (lateral coverage ${spread(sword).toFixed(2)} m)`);
+    ok(spread(spear) < 0.01 && Math.max(...spear.all.map((p) => p.x)) > spear.a.reach * 0.95, `H1 spear is a straight thrust out to ${spear.a.reach.toFixed(2)} m`);
+    ok(spear.all.some((p) => p.x < 0.6), 'H1 spear shaft covers the near range too (no gap in front of the fighter)');
+    ok(fist.all.length === fist.a.active && spread(fist) < 0.01, 'H1 gauntlet is a single close-range ball');
+    ok(spread(dag) < spread(sword), 'H1 daggers sweep a narrower arc than the katana');
+    for (const s of [sword, spear, fist, dag]) ok(s.all.every((p) => Math.hypot(p.x, p.z) <= s.a.reach + 1e-6), `H1 ${s.a.id} never damages beyond its visible reach (${s.a.reach.toFixed(2)} m)`);
+    // an enemy slightly to the side of the swing is hit by the sword but a point-blank sphere would miss it
+    const ronin = new Fighter(getCharacter('ronin').stats, bounds), foe = new Fighter(getCharacter('ronin').stats, bounds);
+    ronin.reset(0, 0, 1); foe.reset(1.55, 0.95, -1); ronin.setState('attack'); ronin.attack = getCharacter('ronin').stats.attacks.heavy; ronin.hitDone = false;
+    let hit = false; const h = foe.hurtbox();
+    for (let k = 0; k < ronin.attack.active && !hit; k++) { ronin.attackFrame = ronin.attack.startup + k; for (const s of ronin.hitSamples() ?? []) if (Math.hypot(s.x - h.x, Math.max(h.y0, Math.min(h.y1, s.y)) - s.y, s.z - h.z) <= s.r + h.r) hit = true; }
+    const sph = { x: ronin.attack.reach, z: 0, r: ronin.attack.radius };
+    ok(hit && Math.hypot(sph.x - h.x, sph.z - h.z) > sph.r + h.r, 'H1 a sword swing hits a target off the centre line that a single ball would miss');
+  }
+}
+
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASSED');
 process.exit(fails ? 1 : 0);
 

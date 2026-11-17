@@ -1,4 +1,4 @@
-import type { AttackData, Button, CharacterStats, FighterInput, FighterState } from './types';
+import type { AttackData, Button, CharacterStats, FighterInput, FighterState, HitSample } from './types';
 
 export interface ArenaBounds { x: number; z: number }
 
@@ -10,6 +10,10 @@ const DODGE_COOLDOWN = 18;
 const KO_LIE_FRAMES = 45;
 const GETUP_FRAMES = 30;
 export const BODY_RADIUS = 0.32;
+/** Lateral walking speed relative to forward walking. */
+const LATERAL_SPEED = 0.75;
+/** Fraction of the gap between current and requested air velocity closed each frame while jumping. */
+const AIR_CONTROL = 0.06;
 
 /**
  * Pure combat-state simulation for one fighter. Advances exactly one fixed
@@ -43,6 +47,8 @@ export class Fighter {
   private walkFrames = 0;
   /** Visual-only landing recovery counter (drives the LAND clip). */
   landTimer = 0;
+  /** Lateral walking input this frame (+1 toward camera, -1 away, 0 none); lets animation tell strafing from idling. */
+  moveSide = 0;
   /** Last hit came from behind (drives HIT_BACK). */
   hitFromBack = false;
   private dodgeCooldown = 0;
@@ -102,11 +108,44 @@ export class Fighter {
     this.buffered = null;
   }
 
-  /** Active hitbox sphere, or null if the current attack is not in its active frames. */
-  hitbox(): { x: number; y: number; z: number; r: number } | null {
+  /** Active hitbox sphere (the attack's primary sample), or null if the current attack is not in its active frames. */
+  hitbox(): HitSample | null {
     const a = this.attack;
     if (!a || this.attackPhase !== 'active') return null;
     return { x: this.x + this.fx * a.reach, y: this.y + a.height, z: this.z + this.fz * a.reach, r: a.radius };
+  }
+
+  /**
+   * The attack's collision shape this frame as a set of balls (world space), or null outside the active frames.
+   * Shapes follow the weapon: a sword sweeps an arc, a spear is a growing line, fists/daggers/kicks a single ball.
+   * Each sample set also covers the path travelled since the previous frame, so fast attacks cannot tunnel.
+   */
+  hitSamples(): HitSample[] | null {
+    const a = this.attack;
+    if (!a || this.attackPhase !== 'active') return null;
+    const k = this.attackFrame - a.startup, n = Math.max(1, a.active);
+    const t0 = k / n, t1 = Math.min(1, (k + 1) / n);
+    const y = this.y + a.height, r = a.radius;
+    const out: HitSample[] = [];
+    const at = (dist: number, ang: number): void => {
+      const c = Math.cos(ang), s = Math.sin(ang);
+      out.push({ x: this.x + (this.fx * c - this.fz * s) * dist, y, z: this.z + (this.fx * s + this.fz * c) * dist, r });
+    };
+    switch (a.shape ?? 'sphere') {
+      case 'thrust': { // shaft from the hands to a tip that keeps extending while the attack is active
+        const r0 = a.reachStart ?? 0.35;
+        const tip = r0 + (a.reach - r0) * (0.6 + 0.4 * t1);
+        for (let i = 0; i < 4; i++) at(r0 + ((tip - r0) * i) / 3, 0);
+        break;
+      }
+      case 'swing': { // blade sweeping across an arc: outer edge and inner blade, previous / middle / current angle
+        const arc = ((a.arc ?? 80) * Math.PI) / 180;
+        for (const t of [t0, (t0 + t1) / 2, t1]) { const ang = (t - 0.5) * arc; at(a.reach, ang); at(a.reach * 0.62, ang); }
+        break;
+      }
+      default: at(a.reach, 0);
+    }
+    return out;
   }
 
   /** Vertical-capsule hurtbox. */
@@ -116,7 +155,7 @@ export class Fighter {
 
   step(inp: FighterInput, opp: Fighter): void {
     this.stateFrame++;
-    this.perfectDodge = false;
+    this.perfectDodge = false; this.moveSide = 0;
     if (this.buffered && --this.buffered.frames <= 0) this.buffered = null;
     if (inp.pressed.length) this.buffered = { button: inp.pressed[inp.pressed.length - 1], frames: BUFFER_FRAMES };
     if (this.dodgeCooldown > 0) this.dodgeCooldown--;
@@ -126,7 +165,7 @@ export class Fighter {
     switch (this.state) {
       case 'idle': case 'walk': case 'block': this.stepNeutral(inp, opp); break;
       case 'attack': this.stepAttack(opp); break;
-      case 'jump': this.stepJump(); break;
+      case 'jump': this.stepJump(inp); break;
       case 'dodge': this.stepDodge(); break;
       case 'hitstun': case 'blockstun': this.stepStun(); break;
       case 'knockdown': case 'defeat': this.stepDown(); break;
@@ -151,25 +190,59 @@ export class Fighter {
     if (inp.dodge !== 0 && this.dodgeCooldown === 0) {
       this.dodgeDir = inp.dodge; this.setState('dodge'); this.dodgeCooldown = DODGE_FRAMES + DODGE_COOLDOWN; return;
     }
+    const side = Math.max(-1, Math.min(1, inp.side ?? 0));
     if (inp.jump) {
       this.setState('jump'); this.vy = JUMP_VY;
-      const s = inp.fwd * this.stats.walkSpeed * 0.9;
-      this.jvx = this.fx * s; this.jvz = this.fz * s; return;
+      const t = this.airTarget(inp.fwd, side);
+      this.jvx = t.x; this.jvz = t.z; return;
     }
     // Auto-block: holding BACK (away from the opponent) guards while retreating. (inp.block is only set by the AI.)
     const retreat = inp.fwd < -0.1;
+    const lateral = Math.abs(side) > 0.1;
+    this.moveSide = lateral ? side : 0;
     if (inp.block || retreat) {
       if (this.state !== 'block') this.setState('block');
       this.walkFrames = 0; this.running = false;
-      if (retreat) { this.x += this.fx * inp.fwd * this.stats.backSpeed; this.z += this.fz * inp.fwd * this.stats.backSpeed; }
+      if (retreat || lateral) this.moveLocal(retreat ? inp.fwd : 0, side, opp, false);
       return;
     }
-    if (Math.abs(inp.fwd) > 0.1) {
+    if (inp.fwd > 0.1 || lateral) {
       if (this.state !== 'walk') this.setState('walk');
-      if (inp.fwd > 0) { this.walkFrames++; this.running = this.walkFrames > 42; } else { this.walkFrames = 0; this.running = false; }
-      const sp = inp.fwd > 0 ? this.stats.walkSpeed * (this.running ? 1.35 : 1) : this.stats.backSpeed;
-      this.x += this.fx * inp.fwd * sp; this.z += this.fz * inp.fwd * sp;
+      if (inp.fwd > 0.1 && !lateral) { this.walkFrames++; this.running = this.walkFrames > 42; } else { this.walkFrames = 0; this.running = false; }
+      this.moveLocal(inp.fwd > 0.1 ? inp.fwd : 0, side, opp, this.running);
     } else if (this.state !== 'idle') this.setState('idle');
+  }
+
+  /** Unit vector along arena depth that means "toward the camera", perpendicular to the facing direction. */
+  private lateralDir(): { x: number; z: number } {
+    const s = this.fx >= 0 ? 1 : -1;
+    return { x: -this.fz * s, z: this.fx * s };
+  }
+
+  /**
+   * Local movement vector: fwd along the facing direction, side along the perpendicular (arena depth).
+   * Speed is capped so diagonals are never faster, and pure lateral input orbits the opponent at constant distance.
+   */
+  private moveLocal(fwd: number, side: number, opp: Fighter, run: boolean): void {
+    const st = this.stats;
+    const sf = fwd > 0 ? st.walkSpeed * (run ? 1.35 : 1) : st.backSpeed;
+    const sl = (fwd < 0 ? st.backSpeed : st.walkSpeed) * LATERAL_SPEED;
+    const l = this.lateralDir();
+    let vx = this.fx * fwd * sf + l.x * side * sl, vz = this.fz * fwd * sf + l.z * side * sl;
+    const cap = Math.max(Math.abs(fwd) * sf, Math.abs(side) * sl), len = Math.hypot(vx, vz);
+    if (len > cap && len > 0) { vx *= cap / len; vz *= cap / len; }
+    const d0 = Math.hypot(this.x - opp.x, this.z - opp.z);
+    this.x += vx; this.z += vz;
+    if (Math.abs(fwd) < 0.1 && d0 > 0.01) { // circling: keep the same distance instead of drifting away along the tangent
+      const dx = this.x - opp.x, dz = this.z - opp.z, d1 = Math.hypot(dx, dz) || 1;
+      this.x = opp.x + (dx / d1) * d0; this.z = opp.z + (dz / d1) * d0;
+    }
+  }
+
+  /** Horizontal air velocity (m/frame) a held direction asks for. */
+  private airTarget(fwd: number, side: number): { x: number; z: number } {
+    const s = this.stats.walkSpeed * 0.9, l = this.lateralDir();
+    return { x: this.fx * fwd * s + l.x * side * s * 0.7, z: this.fz * fwd * s + l.z * side * s * 0.7 };
   }
 
   private stepAttack(opp: Fighter): void {
@@ -199,9 +272,12 @@ export class Fighter {
     if (this.attackFrame >= total) this.setState('idle');
   }
 
-  private stepJump(): void {
+  private stepJump(inp: FighterInput): void {
     const b = this.buffered?.button;
     if (b === 'light' || b === 'heavy' || b === 'kick') { this.startAttack('airlight'); return; }
+    // limited air control: the held direction steers the jump (6% of the gap per frame), it never overrides it outright
+    const t = this.airTarget(inp.fwd, Math.max(-1, Math.min(1, inp.side ?? 0)));
+    this.jvx += (t.x - this.jvx) * AIR_CONTROL; this.jvz += (t.z - this.jvz) * AIR_CONTROL;
     this.x += this.jvx; this.z += this.jvz;
     this.vy -= GRAVITY; this.y += this.vy;
     if (this.y <= 0) { this.y = 0; this.vy = 0; this.landTimer = 7; this.setState('idle'); }

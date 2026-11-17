@@ -14,6 +14,11 @@ export interface FighterInput {
   pressed: Button[];
   /** Edge-triggered sidestep along arena depth: +1 toward camera, -1 away, 0 none. */
   dodge: number;
+  /**
+   * Lateral walking (optional, 0 when absent): -1..1 along arena depth, +1 = toward the camera.
+   * Combined with `fwd` this is a full local movement vector; pure lateral input orbits the opponent.
+   */
+  side?: number;
 }
 
 export const emptyInput = (): FighterInput => ({ fwd: 0, jump: false, block: false, pressed: [], dodge: 0 });
@@ -49,7 +54,23 @@ export interface AttackData {
   air?: boolean;
   /** Triggers the cinematic camera + big VFX. */
   cinematic?: boolean;
+  /**
+   * Hit-detection profile (default 'sphere'):
+   *  - sphere: one ball at `reach` (fists, daggers, kicks)
+   *  - thrust: a line of balls from `reachStart` out to `reach`, growing over the active frames (spear)
+   *  - swing:  balls along a horizontal arc of `arc` degrees, sweeping across the active frames (sword)
+   */
+  shape?: HitShape;
+  /** thrust: where the shaft starts (m from body centre; default 0.35). */
+  reachStart?: number;
+  /** swing: total horizontal sweep in degrees (default 80). */
+  arc?: number;
 }
+
+export type HitShape = 'sphere' | 'thrust' | 'swing';
+
+/** One ball of an attack's collision shape (world space). */
+export interface HitSample { x: number; y: number; z: number; r: number }
 
 export interface CharacterStats {
   id?: string;

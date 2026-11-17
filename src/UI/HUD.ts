@@ -74,7 +74,7 @@ export class HUD {
     const exit = el('button', 'tbtn2 danger', 'EXIT'); exit.onclick = () => this.onTrainingExit();
     this.training.append(dm, reset, exit);
 
-    const hint = el('div', 'hint', '<b>A/D</b>move <b>W</b>jump <b>Hold back</b>block <b>Q/E</b>sidestep <b>J</b>light <b>K</b>heavy <b>L</b>kick <b>U</b>special <b>I</b>ultimate <b>Esc</b>pause');
+    const hint = el('div', 'hint', '<b>A/D</b>move <b>W</b>jump <b>Hold back</b>block <b>S/Shift</b>walk around <b>Q/E</b>sidestep <b>J</b>light <b>K</b>heavy <b>L</b>kick <b>U</b>special <b>I</b>ultimate <b>Esc</b>pause');
     this.root.append(this.letterEl, top, this.combo, this.banner, hint, this.fps, this.perf, this.camDbg, this.muteBtn, this.pauseBtn, this.training);
     parent.append(this.root, this.select, this.result);
   }

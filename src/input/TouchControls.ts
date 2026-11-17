@@ -1,7 +1,7 @@
 import type { Button, FighterInput } from '../combat/types';
 import type { InputSource } from './InputSource';
 
-type Action = Button | 'block' | 'dodge';
+type Action = Button | 'jump' | 'dodge';
 interface BtnDef { action: Action; label: string; cls: string }
 
 const BUTTONS: BtnDef[] = [
@@ -23,7 +23,7 @@ export const isTouchDevice = (): boolean =>
 /**
  * Multi-touch controller. Pointer events with per-pointer ownership, so the
  * joystick and any number of buttons work simultaneously without conflicts.
- *  - Stick left/right = move, up = jump, pull back = auto-block (no block button)
+ *  - Stick left/right = move, up/down = walk around the opponent (depth), pull back = auto-block; JUMP is a button
  *  - DODGE sidesteps toward the camera; hold the stick up while tapping to sidestep away.
  *  - Button size is adjustable with the small +/- control (persisted).
  */
@@ -109,7 +109,7 @@ export class TouchControls implements InputSource {
     el.setPointerCapture(e.pointerId);
     this.owners.set(e.pointerId, action);
     el.classList.add('down');
-    if (action === 'block') this.held.add('block');
+    if (action === 'jump') { if (this.enabled) this.jumpQueued = true; }
     else if (action === 'dodge') this.dodgeQueued = true;
     else if (this.enabled) this.queue.push(action);
   }
@@ -118,20 +118,19 @@ export class TouchControls implements InputSource {
     if (!a) return;
     this.owners.delete(e.pointerId);
     el.classList.remove('down');
-    if (a === 'block') this.held.delete('block');
   }
 
   poll(towardSign: number): FighterInput {
     const sx = Math.abs(this.stick.x) > 0.25 ? this.stick.x : 0;
-    const up = this.stick.y < -0.6;
-    if (up && this.jumpArmed) { this.jumpQueued = true; this.jumpArmed = false; }
-    if (!up) this.jumpArmed = true;
+    const sy = Math.abs(this.stick.y) > 0.3 ? this.stick.y : 0; // vertical stick = depth (+ down = toward the camera)
+    const up = this.stick.y < -0.3;
     const inp: FighterInput = {
       fwd: this.enabled ? sx * towardSign : 0,
       jump: this.enabled && this.jumpQueued,
       block: false,
       pressed: this.enabled ? this.queue : [],
       dodge: this.enabled && this.dodgeQueued ? (up ? -1 : 1) : 0,
+      side: this.enabled ? sy : 0,
     };
     this.queue = []; this.dodgeQueued = false; this.jumpQueued = false;
     return inp;

@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   --bg: #0b0d14; --navy: #121a2e; --crimson: #d4143a; --blue: #2f8bff; --amber: #ffb43a; --text: #eef1f8;
   --display: 'Bebas Neue', 'Oswald', Impact, 'Arial Narrow Bold', 'Arial Narrow', sans-serif;
 }
@@ -74,7 +74,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); o
 .tbtn.kick { right: calc(var(--s) * 1.15); bottom: calc(var(--s) * .1); background: rgba(212,110,20,.65); }
 .tbtn.special { right: calc(var(--s) * 2.3); bottom: calc(var(--s) * 1.25); background: rgba(47,139,255,.65); }
 .tbtn.ultimate { right: 0; bottom: calc(var(--s) * 2.25); background: rgba(255,180,58,.7); color: #1a1000; }
-.tbtn.block { right: calc(var(--s) * 2.3); bottom: calc(var(--s) * .05); background: rgba(70,90,150,.65); }
+.tbtn.jump { right: calc(var(--s) * 2.3); bottom: calc(var(--s) * .05); background: rgba(70,90,150,.65); }
 .tbtn.dodge { right: calc(var(--s) * 3.4); bottom: calc(var(--s) * .8); background: rgba(40,120,110,.65); }
 .touch-size { position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%); display: flex; gap: 6px; pointer-events: auto; opacity: .55; }
 .touch-size button { width: 34px; height: 28px; background: rgba(18,26,46,.7); color: #fff; border: 1px solid #556; font-size: 16px; border-radius: 6px; }

@@ -7,7 +7,7 @@ const GAME_KEYS = new Set(['KeyA', 'KeyD', 'KeyW', 'KeyS', 'KeyQ', 'KeyE', 'KeyJ
  * Desktop keyboard controller. Presses are queued as edge events and drained
  * once per fixed simulation step, so input timing is independent of render FPS.
  *
- *  A/D or ←/→  move (hold back = auto-block)     W/Space/↑ jump
+ *  A/D or ←/→  move (hold back = auto-block)     W/Space/↑ jump     S/↓ step toward camera     Shift step away
  *  J light   K heavy   L kick    Q/E sidestep (toward / away from camera)
  */
 export class KeyboardInput {
@@ -50,6 +50,7 @@ export class KeyboardInput {
       fwd: this.enabled ? world * towardSign : 0,
       jump: this.enabled && this.jumpQueued,
       block: false, // no block button: holding back blocks automatically (see Fighter.stepNeutral)
+      side: this.enabled ? (this.held('KeyS', 'ArrowDown') ? 1 : 0) - (this.held('ShiftLeft', 'ShiftRight') ? 1 : 0) : 0, // depth walk: S/Down toward the camera, Shift away
       pressed: this.enabled ? this.queue : [],
       dodge: this.enabled ? this.dodgeQueue : 0,
     };

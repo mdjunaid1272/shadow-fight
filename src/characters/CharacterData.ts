@@ -29,7 +29,15 @@ export const CHARACTERS: CharacterDef[] = [
     abilities: ['Shadow Slash', 'Crimson Execution'],
     ratings: { power: 6, speed: 6, range: 6, defense: 6 },
     blurb: 'A masterless swordsman. Fair in every way, dangerous in all of them.',
-    stats: { id: 'ronin', name: 'Ronin', maxHealth: 1000, walkSpeed: 0.05, backSpeed: 0.036, attacks: buildAttacks({}) },
+    stats: {
+      id: 'ronin', name: 'Ronin', maxHealth: 1000, walkSpeed: 0.05, backSpeed: 0.036,
+      attacks: buildAttacks({ // katana: every slash sweeps an arc, so it hits what the blade visibly passes through
+        overrides: {
+          light1: { shape: 'swing', arc: 70 }, light2: { shape: 'swing', arc: 80 }, heavy: { shape: 'swing', arc: 120 },
+          special: { shape: 'swing', arc: 50 }, ultimate: { shape: 'swing', arc: 170 },
+        },
+      }),
+    },
   },
   {
     id: 'shinobi', name: 'SHINOBI', style: 'Fast assassin', weapon: 'daggers', weaponName: 'Dual Daggers', scale: 0.96,
@@ -41,7 +49,8 @@ export const CHARACTERS: CharacterDef[] = [
       id: 'shinobi', name: 'Shinobi', maxHealth: 900, walkSpeed: 0.064, backSpeed: 0.048,
       attacks: buildAttacks({
         startupAdd: -1, recoveryAdd: -2, damage: 0.75, reach: 0.88, lunge: 1.1,
-        overrides: {
+        overrides: { // daggers: short, fast, narrow arcs
+          light1: { shape: 'swing', arc: 50 }, light2: { shape: 'swing', arc: 50 },
           special: { startup: 11, lunge: 3.6, damage: 105, recovery: 22, reach: 1.3 },
           ultimate: { damage: 250, startup: 26, lunge: 3.6, active: 12 },
         },
@@ -75,9 +84,11 @@ export const CHARACTERS: CharacterDef[] = [
       id: 'akira', name: 'Akira', maxHealth: 1000, walkSpeed: 0.05, backSpeed: 0.038,
       attacks: buildAttacks({
         reach: 1.32, lunge: 1.2, damage: 1.1,
-        overrides: {
-          special: { reach: 2.1, radius: 0.5, lunge: 3.0, damage: 135 },
-          ultimate: { reach: 2.3, radius: 0.8, damage: 300, lunge: 3.2 },
+        overrides: { // spear: forward thrusts are lines, the heavy is a wide sweep
+          light1: { shape: 'thrust', reachStart: 0.4 }, light2: { shape: 'thrust', reachStart: 0.4 },
+          heavy: { shape: 'swing', arc: 140 },
+          special: { reach: 2.1, radius: 0.5, lunge: 3.0, damage: 135, shape: 'thrust', reachStart: 0.6 },
+          ultimate: { reach: 2.3, radius: 0.8, damage: 300, lunge: 3.2, shape: 'thrust', reachStart: 0.6 },
         },
       }),
     },

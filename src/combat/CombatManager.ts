@@ -1,6 +1,6 @@
-﻿import { Emitter } from '../core/Events';
+import { Emitter } from '../core/Events';
 import { BODY_RADIUS, Fighter } from './Fighter';
-import type { FighterInput } from './types';
+import type { AttackData, FighterInput, HitSample } from './types';
 
 export interface CombatEvents {
   hit: { attackId: string; attacker: number; defender: number; damage: number; x: number; y: number; z: number; blocked: boolean; knockdown: boolean; hitstop: number };
@@ -12,6 +12,13 @@ export interface CombatEvents {
   state: { who: number; from: string; to: string };
   /** A special / ultimate attack has just started (energy already spent). */
   special: { who: number; id: string; cinematic: boolean; x: number; y: number; z: number };
+}
+
+/** What one attacker's active hitbox does to the opponent this frame (computed from a snapshot, applied afterwards). */
+interface Resolution {
+  kind: 'hit' | 'block' | 'dodged';
+  ai: number; data: AttackData; dx: number; dz: number; cx: number; cy: number; cz: number;
+  damage: number; hitstop: number; count: number;
 }
 
 const MAX_COMBO_SCALING_FLOOR = 0.4;
@@ -57,64 +64,84 @@ export class CombatManager {
       }
     });
     if (this.active) {
-      this.resolve(0);
-      this.resolve(1);
+      this.resolveAll();
     }
     this.separate();
     this.updateCombos();
   }
 
-  private resolve(ai: number): void {
+  /**
+   * Simultaneous hit resolution. Both attacks are evaluated against the SAME pre-resolution snapshot (positions, states,
+   * block/invulnerability, combo counters, health) and only then applied, so neither fighter has priority: if both
+   * attacks connect on one frame it is a genuine trade, and a double KO is a draw.
+   */
+  private resolveAll(): void {
+    const results: Resolution[] = [];
+    for (const ai of [0, 1]) { const r = this.evaluate(ai); if (r) results.push(r); }
+    for (const r of results) this.apply(r);
+    for (const r of results) {
+      if (r.kind !== 'hit') continue;
+      const def = this.fighters[1 - r.ai];
+      if (def.health <= 0) this.events.emit('ko', { loser: 1 - r.ai });
+    }
+    for (const r of results) if (r.kind === 'hit' || r.kind === 'block') this.hitstop = Math.max(this.hitstop, r.hitstop);
+  }
+
+  /** Read-only: decides what attacker `ai` does to the opponent this frame. Does not mutate either fighter. */
+  private evaluate(ai: number): Resolution | null {
     const att = this.fighters[ai], def = this.fighters[1 - ai];
-    const hb = att.hitbox();
+    const samples = att.hitSamples();
     const data = att.attack;
-    if (!hb || !data || att.hitDone) return;
-    if (def.state === 'victory' || def.state === 'defeat') return;
+    if (!samples || !data || att.hitDone) return null;
+    if (def.state === 'victory' || def.state === 'defeat') return null;
 
     const h = def.hurtbox();
-    const py = Math.max(h.y0, Math.min(h.y1, hb.y));
-    const d = Math.hypot(hb.x - h.x, py - hb.y, hb.z - h.z);
-    if (d > hb.r + h.r) return;
-
-    att.hitDone = true;
-    if (def.invulnerable) {
-      if (def.state === 'dodge') { def.addEnergy(12); this.events.emit('perfectDodge', { who: 1 - ai }); }
-      return;
+    let contact: HitSample | null = null;
+    for (const s of samples) { // any ball of the attack's shape touching the defender's capsule is a hit
+      const py = Math.max(h.y0, Math.min(h.y1, s.y));
+      if (Math.hypot(s.x - h.x, py - s.y, s.z - h.z) <= s.r + h.r) { contact = s; break; }
     }
+    if (!contact) return null;
 
     let dx = def.x - att.x, dz = def.z - att.z;
     const len = Math.hypot(dx, dz) || 1; dx /= len; dz /= len;
-    const blocking = (def.state === 'block' || def.state === 'blockstun') && def.fx * -dx + def.fz * -dz > 0.2;
-    const cx = (hb.x + h.x) / 2, cy = hb.y, cz = (hb.z + h.z) / 2;
+    const cx = (contact.x + h.x) / 2, cy = contact.y, cz = (contact.z + h.z) / 2;
+    if (def.invulnerable) return { kind: 'dodged', ai, data, dx, dz, cx, cy, cz, damage: 0, hitstop: 0, count: 0 };
 
-    if (blocking) {
-      const chip = Math.round(data.damage * CHIP_RATIO);
-      def.takeBlock(data, chip, dx, dz);
-      att.connected = true;
-      att.addEnergy(data.energyGain * 0.4); def.addEnergy(3);
-      this.damageDealt[ai] += chip;
-      this.hitstop = 2;
-      this.events.emit('hit', { attackId: data.id, attacker: ai, defender: 1 - ai, damage: chip, x: cx, y: cy, z: cz, blocked: true, knockdown: false, hitstop: 2 });
-      return;
-    }
+    const blocking = (def.state === 'block' || def.state === 'blockstun') && def.fx * -dx + def.fz * -dz > 0.2;
+    if (blocking) return { kind: 'block', ai, data, dx, dz, cx, cy, cz, damage: Math.round(data.damage * CHIP_RATIO), hitstop: 2, count: 0 };
 
     const count = def.inCombo ? this.combo[ai] + 1 : 1;
     const scale = Math.max(MAX_COMBO_SCALING_FLOOR, 1 - 0.1 * (count - 1));
-    const damage = Math.round(data.damage * scale);
-    const dealt = Math.min(damage, def.health);
-    const wasHealth = def.health;
-    def.takeHit(data, damage, dx, dz);
+    return { kind: 'hit', ai, data, dx, dz, cx, cy, cz, damage: Math.round(data.damage * scale), hitstop: data.hitstop, count };
+  }
+
+  private apply(r: Resolution): void {
+    const { ai, data } = r;
+    const att = this.fighters[ai], def = this.fighters[1 - ai];
+    att.hitDone = true;
+    if (r.kind === 'dodged') {
+      if (def.state === 'dodge') { def.addEnergy(12); this.events.emit('perfectDodge', { who: 1 - ai }); }
+      return;
+    }
+    if (r.kind === 'block') {
+      def.takeBlock(data, r.damage, r.dx, r.dz);
+      att.connected = true;
+      att.addEnergy(data.energyGain * 0.4); def.addEnergy(3);
+      this.damageDealt[ai] += r.damage;
+      this.events.emit('hit', { attackId: data.id, attacker: ai, defender: 1 - ai, damage: r.damage, x: r.cx, y: r.cy, z: r.cz, blocked: true, knockdown: false, hitstop: 2 });
+      return;
+    }
+    const dealt = Math.min(r.damage, def.health), wasHealth = def.health;
+    def.takeHit(data, r.damage, r.dx, r.dz);
     att.connected = true;
     att.addEnergy(data.energyGain); def.addEnergy(dealt * 0.02);
     this.damageDealt[ai] += wasHealth - def.health;
-    this.combo[ai] = count;
-    this.maxCombo[ai] = Math.max(this.maxCombo[ai], count);
-    this.hitstop = data.hitstop;
-    this.events.emit('hit', { attackId: data.id, attacker: ai, defender: 1 - ai, damage: dealt, x: cx, y: cy, z: cz, blocked: false, knockdown: data.knockdown || def.health <= 0, hitstop: data.hitstop });
-    if (count > 1) this.events.emit('combo', { owner: ai, count });
-    if (def.health <= 0) this.events.emit('ko', { loser: 1 - ai });
+    this.combo[ai] = r.count;
+    this.maxCombo[ai] = Math.max(this.maxCombo[ai], r.count);
+    this.events.emit('hit', { attackId: data.id, attacker: ai, defender: 1 - ai, damage: dealt, x: r.cx, y: r.cy, z: r.cz, blocked: false, knockdown: data.knockdown || def.health <= 0, hitstop: data.hitstop });
+    if (r.count > 1) this.events.emit('combo', { owner: ai, count: r.count });
   }
-
   private separate(): void {
     const [a, b] = this.fighters;
     if (a.y > 0.6 || b.y > 0.6) return;

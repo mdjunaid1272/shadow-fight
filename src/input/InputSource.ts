@@ -14,5 +14,6 @@ export function mergeInputs(a: FighterInput, b: FighterInput): FighterInput {
     block: a.block || b.block,
     pressed: [...a.pressed, ...b.pressed],
     dodge: a.dodge || b.dodge,
+    side: Math.abs(a.side ?? 0) >= Math.abs(b.side ?? 0) ? (a.side ?? 0) : (b.side ?? 0),
   };
 }
